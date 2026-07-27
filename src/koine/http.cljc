@@ -1,4 +1,4 @@
-(ns cljhost.http
+(ns koine.http
   "Outbound HTTP, portable. One request shape, one response shape, every host."
   (:require [clojure.string :as str])
   #?(:cljgo (:require [cljg.net.http :as gohttp])))
@@ -38,7 +38,7 @@
        {:status (:status r) :body (:body r) :headers (:headers r)})
 
      :default
-     (throw (ex-info "cljhost.http/request: no implementation for this host; add a branch in cljhost/http.cljc"
+     (throw (ex-info "koine.http/request: no implementation for this host; add a branch in koine/http.cljc"
                      {:url url}))))
 
 (defn post-json

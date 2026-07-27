@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the portability conformance checks on every host that is installed.
 #
-# The point of cljhost is that ONE source file behaves identically on all of
+# The point of koine is that ONE source file behaves identically on all of
 # them, so this script is the real test suite — `clojure -M:test` only covers
 # the JVM.
 #

@@ -1,4 +1,4 @@
-(ns cljhost.env
+(ns koine.env
   "Environment variables, portable.
 
   Values read here are frequently secrets (API keys expanded into MCP headers).
@@ -29,9 +29,9 @@
           ;; require-go reaches only the seed registry — strings/strconv/math/fmt
           ;; (pkg/eval/host.go:15) — so `(require-go '[os])` fails in BOTH
           ;; interpreted and AOT mode. Needs getenv in cljgo's cljg.os.
-          :cljgo (throw (ex-info "cljhost.env/get-env: cljgo has no environment-variable access yet (cljg.os has no getenv; require-go cannot reach Go's os package). Tracked as a cljgo work item in toolnexus ADR 0009."
+          :cljgo (throw (ex-info "koine.env/get-env: cljgo has no environment-variable access yet (cljg.os has no getenv; require-go cannot reach Go's os package). Tracked as a cljgo work item in toolnexus ADR 0009."
                                  {:name (str name) :host :cljgo}))
-          :default (throw (ex-info "cljhost.env/get-env: no implementation for this host; add a branch in cljhost/env.cljc"
+          :default (throw (ex-info "koine.env/get-env: no implementation for this host; add a branch in koine/env.cljc"
                                    {:name (str name)}))))
        default)))
 

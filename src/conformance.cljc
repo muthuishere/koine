@@ -1,5 +1,5 @@
-(require 'cljhost.json)
-(alias 'json 'cljhost.json)
+(require 'koine.json)
+(alias 'json 'koine.json)
 (def cases
   [["sorted"   (json/write-str {"b" 1 "a" 2 "c" 3})       "{\"a\":2,\"b\":1,\"c\":3}"]
    ["float"    (json/write-str {:f 1.0 :h 100.0})         "{\"f\":1.0,\"h\":100.0}"]

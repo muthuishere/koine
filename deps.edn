@@ -1,5 +1,5 @@
 {:paths ["src"]
- ;; No third-party dependencies, deliberately: cljhost must load on hosts that
+ ;; No third-party dependencies, deliberately: koine must load on hosts that
  ;; cannot run Java-carrying libraries at all (see README).
  :deps  {org.clojure/clojure {:mvn/version "1.12.5"}}
  :aliases

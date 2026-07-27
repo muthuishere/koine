@@ -1,4 +1,4 @@
-(ns cljhost.process
+(ns koine.process
   "Subprocesses, portable.
 
   `sh` (run-to-completion) works on every host. `spawn` (a long-lived child
@@ -31,7 +31,7 @@
                                                   env (assoc :env env)))]
         {:out (:out r) :err (:err r) :exit (:exit r)})
       :default
-      (throw (ex-info "cljhost.process/sh: no implementation for this host; add a branch in cljhost/process.cljc"
+      (throw (ex-info "koine.process/sh: no implementation for this host; add a branch in koine/process.cljc"
                       {:command command})))))
 
 (defprotocol Child
@@ -69,11 +69,11 @@
       ;; :in as a string and returns after the child exits, so it cannot hold a
       ;; conversation. `(require-go '[os/exec :as ex])` binds nothing in
       ;; interpreted mode either. Needs a streaming primitive in cljgo's cljg.io.
-      (throw (ex-info (str "cljhost.process/spawn: cljgo has no streaming subprocess yet. "
+      (throw (ex-info (str "koine.process/spawn: cljgo has no streaming subprocess yet. "
                            "cljg.io/exec is run-to-completion. Tracked as cljgo work item 1 "
                            "in toolnexus ADR 0009.")
                       {:command command :host :cljgo}))
 
       :default
-      (throw (ex-info "cljhost.process/spawn: no implementation for this host; add a branch in cljhost/process.cljc"
+      (throw (ex-info "koine.process/spawn: no implementation for this host; add a branch in koine/process.cljc"
                       {:command command})))))

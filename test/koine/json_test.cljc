@@ -1,9 +1,9 @@
-(ns cljhost.json-test
+(ns koine.json-test
   "The encoder's output is a CONTRACT: these expected strings must be produced
   byte-for-byte on every host. Run this suite under each host; any difference
   is a portability bug, not a test to relax."
   (:require [clojure.test :refer [deftest is testing]]
-            [cljhost.json :as json]))
+            [koine.json :as json]))
 
 (deftest encode-scalars
   (is (= "null" (json/write-str nil)))

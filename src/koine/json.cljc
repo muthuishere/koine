@@ -1,4 +1,4 @@
-(ns cljhost.json
+(ns koine.json
   "JSON for dual-host Clojure.
 
   ENCODE is pure portable Clojure — deliberately NOT delegated to a host

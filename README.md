@@ -1,21 +1,33 @@
-# cljhost
+# koine
 
-**One `.cljc` library that makes Clojure code run unchanged on the JVM and on every Go-hosted Clojure.**
+**Write `.cljc` once, run it on every Clojure.**
 
-Verified on four hosts: **Clojure 1.12.5**, **cljgo**, **Glojure**, **let-go**.
+One API over four Clojure runtimes — **Clojure 1.12.5**, **cljgo**, **Glojure** and
+**let-go** — all verified, from a single source file.
 
-Write portable Clojure. Call `cljhost` for the four things `clojure.core` doesn't
-give you — HTTP, subprocesses, the filesystem, environment variables — plus JSON.
-`cljhost` is the *only* place in your codebase that contains a reader conditional.
+*Koine* was the common tongue: the dialect that let people who spoke different Greeks
+understand each other. That is this library's whole job.
+
+You write plain Clojure. koine supplies the handful of things `clojure.core` can't —
+HTTP, subprocesses, the filesystem, environment variables — plus JSON, and it is the
+**only** place in your codebase that contains a reader conditional. The Java and the Go
+live inside koine and never surface.
+
+Adding a fifth runtime is a change *inside koine*: one branch in one file, which every
+library built on it inherits at once.
+
+**Scope, deliberately narrow:** koine covers only what touches the host. Anything that
+can be plain Clojure stays plain Clojure — which is why JSON ended up pure
+`clojure.core` rather than in the seam. It is the floor, not an app framework.
 
 ```clojure
 (ns my.app
-  (:require [cljhost.http :as http]
-            [cljhost.json :as json]))
+  (:require [koine.http :as http]
+            [koine.json :as json]))
 
 ;; identical source, identical bytes, on Clojure 1.12 and on cljgo
 (-> (http/post-json "https://api.example.com/v1/chat"
-                    {"authorization" (str "Bearer " (cljhost.env/get-env "API_KEY"))}
+                    {"authorization" (str "Bearer " (koine.env/get-env "API_KEY"))}
                     (json/write-str {:model "claude-opus-5" :temperature 1.0}))
     :body
     json/read-str)
@@ -32,18 +44,18 @@ popular Clojure libraries were scanned and zero were pure** — `data.json`,
 `edamame`, `medley`, `tools.cli`, `rewrite-clj`, `babashka/http-client` all carry
 Java interop. The pure subset of the ecosystem is not thin, it's empty.
 
-`cljhost` takes the other route: put *all* the host code in one small library,
-behind one portable API, and let everything above it be plain Clojure.
+koine takes the other route: put *all* the host code in one small library, behind one
+portable API, and let everything above it be plain Clojure.
 
 ## What's in it
 
 | namespace | what | how |
 |---|---|---|
-| `cljhost.json` | `write-str` / `read-str` | **pure `clojure.core`** — no host code, no deps |
-| `cljhost.env` | `get-env` / `expand` | `System/getenv` (jvm, let-go) · `os.Getenv` (glojure) · gap (cljgo) |
-| `cljhost.http` | `request` / `post-json` | `java.net.http` · `net:http` · `http` ns · `cljg.net.http` |
-| `cljhost.process` | `sh` / `spawn` | `ProcessBuilder` · `os:exec` · `os` ns · `cljg.io` |
-| `cljhost.fs` | `exists?` `directory?` `list-tree` `find-files` | `java.io.File` · `cljg.io` · `io`/`os` ns |
+| `koine.json` | `write-str` / `read-str` | **pure `clojure.core`** — no host code, no deps |
+| `koine.env` | `get-env` / `expand` | `System/getenv` (jvm, let-go) · `os.Getenv` (glojure) · gap (cljgo) |
+| `koine.http` | `request` / `post-json` | `java.net.http` · `net:http` · `http` ns · `cljg.net.http` |
+| `koine.process` | `sh` / `spawn` | `ProcessBuilder` · `os:exec` · `os` ns · `cljg.io` |
+| `koine.fs` | `exists?` `directory?` `list-tree` `find-files` | `java.io.File` · `cljg.io` · `io`/`os` ns |
 
 Reader features, confirmed from each implementation's source: `:clj` · `:cljgo`
 (cljgo ADR 0036) · `:glj` (`pkg/reader/reader.go:1403`) · `:lg`
@@ -68,7 +80,7 @@ matters to any schema declaring `"type": "number"`. And key ordering decides
 whether two hosts produce byte-identical prompt prefixes — which is what provider
 prompt caching depends on.
 
-So `cljhost` owns encoding (~80 lines, pure Clojure, no host library) and makes
+So `koine` owns encoding (~80 lines, pure Clojure, no host library) and makes
 three choices once, for every host:
 
 1. **object keys are sorted** — Clojure map iteration order is unspecified above
@@ -101,7 +113,7 @@ Writing one file for four hosts surfaces things that look fine on the JVM:
   non-dynamic var". Thread the parameter instead; it is also less code.
 - **Go's `os.Getenv` returns `""` where the JVM returns `null`** — and `""` is
   *truthy* in Clojure, so `(or (getenv x) default)` silently never falls back on
-  Go-hosted dialects. `cljhost.env` normalises empty to nil.
+  Go-hosted dialects. `koine.env` normalises empty to nil.
 - **`file-seq` takes different argument types** — a `java.io.File` on the JVM, a
   string path on cljgo. It resolves on both, so it reads as portable and isn't.
 - **Map print order differs across hosts** — so any test comparing `pr-str` of a
@@ -130,10 +142,10 @@ Writing one file for four hosts surfaces things that look fine on the JVM:
 
 ```clojure
 ;; deps.edn — JVM
-io.github.muthuishere/cljhost {:mvn/version "0.1.0"}
+io.github.muthuishere/koine {:mvn/version "0.1.0"}
 
 ;; deps.edn — cljgo (Clojars consumption isn't supported by cljgo yet)
-io.github.muthuishere/cljhost {:git/url "https://github.com/muthuishere/cljhost" :git/sha "…"}
+io.github.muthuishere/koine {:git/url "https://github.com/muthuishere/koine" :git/sha "…"}
 ```
 
 ## Test

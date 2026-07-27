@@ -1,4 +1,4 @@
-(ns cljhost.fs
+(ns koine.fs
   "Filesystem, portable.
 
   Note `file-seq` is a trap: it resolves on BOTH hosts but takes different
@@ -11,12 +11,12 @@
 (defn exists? [path]
   #?(:clj   (.exists (java.io.File. ^String (str path)))
      :cljgo (cio/exists? (str path))
-     :default (throw (ex-info "cljhost.fs/exists?: no implementation for this host" {:path path}))))
+     :default (throw (ex-info "koine.fs/exists?: no implementation for this host" {:path path}))))
 
 (defn directory? [path]
   #?(:clj   (.isDirectory (java.io.File. ^String (str path)))
      :cljgo (cio/directory? (str path))
-     :default (throw (ex-info "cljhost.fs/directory?: no implementation for this host" {:path path}))))
+     :default (throw (ex-info "koine.fs/directory?: no implementation for this host" {:path path}))))
 
 (defn list-tree
   "Every path under `root`, recursively, as strings — files and directories.
@@ -24,7 +24,7 @@
   [root]
   #?(:clj   (map str (file-seq (java.io.File. ^String (str root))))
      :cljgo (map str (file-seq (str root)))
-     :default (throw (ex-info "cljhost.fs/list-tree: no implementation for this host" {:root root}))))
+     :default (throw (ex-info "koine.fs/list-tree: no implementation for this host" {:root root}))))
 
 (defn find-files
   "Every file under `root` whose path ends with `suffix`, SORTED.
