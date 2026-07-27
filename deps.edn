@@ -1,6 +1,7 @@
 {:paths ["src"]
- :deps  {org.clojure/clojure   {:mvn/version "1.12.5"}
-         org.clojure/data.json {:mvn/version "2.5.1"}}
+ ;; No third-party dependencies, deliberately: cljhost must load on hosts that
+ ;; cannot run Java-carrying libraries at all (see README).
+ :deps  {org.clojure/clojure {:mvn/version "1.12.5"}}
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps  {io.github.cognitect-labs/test-runner
