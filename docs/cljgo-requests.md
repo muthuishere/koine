@@ -27,13 +27,13 @@ it is the largest.
                               ;   the later http/Get fails "no such namespace: http"
 ```
 
-**Surprising result worth your check:** this fails in **AOT mode too**.
-`cljgo build` on a file with `(require-go '[net/http :as http])` gives
-`compiler error: no such namespace: http`. Given ADR 0010/0033 describe AOT
-resolving through go/packages type facts, I may simply have invoked it wrong
-(no `build.cljgo`, bare file). If AOT *does* work with proper project setup,
-say so — it changes the shape of this ask, though the interpreter gap would
-remain.
+**Resolved by spike (2026-07-27):** stdlib fails in AOT too, but *not* because
+the machinery is missing. A real third-party module builds and runs end-to-end
+with zero hand-written bindings (`github.com/google/uuid` pinned via
+`go-require` → a 6.8 MB binary printing a real UUID). Stdlib is excluded purely
+by a gate: `isThirdPartyGoPath` (`pkg/eval/host.go:174`) requires a dot in the
+first path segment, and `os` has none. So the AOT half is a **3-call-site
+change in one file**, not new machinery. See cljgo ADR 0096 decision 1.
 
 **Why it matters:** Go already has everything koine is missing —
 `os.Getenv`, `time.Since`, `time.Sleep`, `exec.Cmd.StdinPipe`, `resp.Body`. One
