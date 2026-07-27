@@ -62,7 +62,15 @@ Run everything with `./run-conformance.sh`.
 - **Unresolvable symbols fail at COMPILE time on let-go and Glojure**, so a
   `try`/`catch` around a probe does not save you and one bad form kills the
   whole file. Probe capabilities in *separate files*.
-- **`Throwable` does not exist on Glojure.** Catch `Exception`, or don't catch.
+- **Glojure catches with `go/any` — NOT `Exception`, NOT `Throwable`.** Both of
+  those fail to *compile* there; Glojure's own stdlib uses `(catch go/any e …)`
+  (`pkg/stdlib/clojure/core.glj`). The portable form is
+  `#?(:glj (catch go/any e …) :default (catch Exception e …))`. `Exception` does
+  work on cljgo and let-go. (An earlier revision of this file said "catch
+  `Exception`" — that was wrong and cost an agent real time.)
+- **`ex-message` does not exist on Glojure** — use `(str e)`. And on cljgo
+  `(str e)` prints `#object[*lang.ExceptionInfo]`, so use `ex-message` there. A
+  test asserting on error *text* must branch, or it silently passes.
 - **cljgo refers the core.async aliases (`<!!` `timeout` `chan` `go` …) into
   `user` ONLY** (`chan_builtins.go:632` `asyncCoreAliases`, applied by
   `InitUserNS`). They resolve in a top-level script but fail at **compile time**
@@ -79,6 +87,38 @@ Run everything with `./run-conformance.sh`.
   code. Quirk: private vars in the `cljg.os` *namespace* ARE reachable when
   fully qualified (`cljg.os/-sleep-millis`) while private `clojure.core` ones
   are not — depend on neither, both are outside the contract.
+- **JVM `BodyHandlers/ofLines` is NOT incremental.** It looks like the obvious
+  streaming route and is not: every line surfaces only after the whole body
+  arrives (measured — 4 events all at ~605-767ms, spread 0). `sendAsync` is the
+  same. Only `ofInputStream` + a `BufferedReader` genuinely streams. This would
+  have shipped silently, since the events themselves are all correct.
+- **let-go's HTTP client and server both panic on an empty-but-present
+  `:headers {}`** — nil-pointer inside the host (`pkg/rt/http.go:134`); `{}` is
+  neither `nil` nor walkable there. Omit the key entirely when there are no
+  headers. koine absorbs this on both sides.
+- **cljgo's `(require-go '[net/http])` SUCCEEDS and interns nothing** — the
+  later `http/Get` then fails with `no such namespace: http`. A clean
+  `require-go` return is NOT a capability probe.
+- **Glojure has no `.-Field` form** — `(.-Header r)` dies with
+  `panic: unimplemented op: 22`. Use `(.Header r)` for both fields and methods.
+- **Glojure's `byte-array` produces `[]int8`, not `[]byte`** — anything feeding
+  a Go `Read([]byte)` needs `(go/make (go/slice-of go/byte) n)`.
+- **Glojure surfaces Go multi-returns as a vector** `[value error]` — `(nth r 0)`
+  / `(first …)`. `[]byte`→string is `(.String (bytes.NewBuffer b))`.
+- **`bufio` is NOT in Glojure's default package map** (`bytes`, `io`, `net/http`
+  are). `bytes.Buffer.ReadBytes(10)` covers line framing; there is no
+  `bufio.Scanner`.
+- **Glojure coerces a Clojure fn to a Go func automatically**
+  (`pkg/lang/apply.go:287`, `reflect.MakeFunc`), so a plain `(fn [w r] …)` IS an
+  `http.HandlerFunc`. Go callbacks need no ceremony.
+- **Server request-map keys differ on every host and none of them is
+  `:method`/`:path`**: let-go `:request-method`/`:path`, cljgo/bri
+  `:request-method`/`:uri`, Glojure `.Method`/`.URL.Path`, JVM
+  `.getRequestMethod`/`.getRequestURI`. Header case differs too (Go
+  canonicalizes `Content-Type`, let-go/bri lowercase). Normalise above the seam.
+- **Split chunked reads on the 0x0A BYTE, never decode each chunk to text
+  first.** 0x0A cannot appear inside a UTF-8 sequence, but a 4 KiB read lands
+  mid-rune routinely. Verified with a 12000-byte non-ASCII line.
 - **The JVM lingers ~60s after `future`/`pmap`** (non-daemon agent pool), so a
   timeout-guarded probe reports a false failure. Not a missing capability.
 
@@ -107,5 +147,16 @@ a host-specific require cost only where it applies.
   monotonic clock or sleep, though both exist privately — worth filing upstream
   as `cljg.os/mono-nanos` + `cljg.os/sleep`, since the Go seams already exist and
   only visibility is missing.
+- cljgo cannot stream an HTTP response: `cljg.net.http`'s only shim ends in
+  `io.ReadAll` + `defer resp.Body.Close()` (`pkg/bri/net_http.go`), so the reader
+  is closed before Clojure sees it, and the namespace exposes no other entry
+  point. `koine.stream` throws a named error there.
+- let-go cannot **stop** an HTTP server: `http/serve` (`pkg/rt/http.go:164`)
+  calls `http.ListenAndServe` directly and returns NIL — no `*http.Server`
+  exists anywhere in the runtime, so there is no shutdown handle and no
+  bound-port readback.
+- Glojure cannot bind **port 0**: its default package set has `net/http` but not
+  plain `net`, so no `net.Listener` can be built and `*http.Server` never
+  exposes its listener. An explicit port is required.
 - let-go and cljgo have **no true monotonic clock** reachable from user code, so
   `koine.time/mono-ms` falls back to a high-water-clamped wall clock there.

@@ -21,6 +21,12 @@ run () {  # name, command...
 }
 
 # Every src/*check*.cljc (plus conformance.cljc) is run on every host.
+# stream_check needs a live SSE server; start one if it isn't already up.
+if [ -f ../test/sse_server.py ] && [ ! -f /tmp/koine-stream-base ]; then
+  python3 ../test/sse_server.py >/tmp/koine-sse.log 2>&1 &
+  SSE_PID=$!; trap 'kill $SSE_PID 2>/dev/null' EXIT; sleep 2
+fi
+
 for check in conformance.cljc *_check.cljc; do
   [ -f "$check" ] || continue
   echo "== ${check%.cljc} =="
