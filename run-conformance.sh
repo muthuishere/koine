@@ -20,8 +20,12 @@ run () {  # name, command...
   printf '%-10s %s\n' "$name" "$("$@" conformance.cljc 2>&1 | tail -1)"
 }
 
-echo "== JSON encode/decode conformance =="
-printf '%-10s %s\n' "jvm" "$(clojure -Sdeps '{:paths ["."]}' -M conformance.cljc 2>&1 | tail -1)"
-command -v cljgo >/dev/null && printf '%-10s %s\n' "cljgo" "$(cljgo run conformance.cljc 2>&1 | tail -1)"
-command -v lg    >/dev/null && printf '%-10s %s\n' "let-go" "$(lg conformance.cljc 2>&1 | tail -1)"
-command -v glj   >/dev/null && printf '%-10s %s\n' "glojure" "$(GLJ_CLASSPATH=. glj conformance.cljc 2>&1 | tail -1)"
+# Every src/*check*.cljc (plus conformance.cljc) is run on every host.
+for check in conformance.cljc *_check.cljc; do
+  [ -f "$check" ] || continue
+  echo "== ${check%.cljc} =="
+  printf '%-10s %s\n' "jvm" "$(timeout 60 clojure -Sdeps '{:paths ["."]}' -M "$check" 2>&1 | tail -1)"
+  command -v cljgo >/dev/null && printf '%-10s %s\n' "cljgo"   "$(timeout 60 cljgo run "$check" 2>&1 | tail -1)"
+  command -v lg    >/dev/null && printf '%-10s %s\n' "let-go"  "$(timeout 60 lg "$check" 2>&1 | tail -1)"
+  command -v glj   >/dev/null && printf '%-10s %s\n' "glojure" "$(GLJ_CLASSPATH=. timeout 60 glj "$check" 2>&1 | tail -1)"
+done

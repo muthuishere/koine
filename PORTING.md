@@ -63,6 +63,22 @@ Run everything with `./run-conformance.sh`.
   `try`/`catch` around a probe does not save you and one bad form kills the
   whole file. Probe capabilities in *separate files*.
 - **`Throwable` does not exist on Glojure.** Catch `Exception`, or don't catch.
+- **cljgo refers the core.async aliases (`<!!` `timeout` `chan` `go` …) into
+  `user` ONLY** (`chan_builtins.go:632` `asyncCoreAliases`, applied by
+  `InitUserNS`). They resolve in a top-level script but fail at **compile time**
+  inside any `(ns …)` file. Fully qualify them in library code:
+  `clojure.core.async/<!!`. A probe script that works proves nothing about a
+  namespace.
+- **let-go's `System/nanoTime` is a WALL clock, not monotonic** —
+  `pkg/rt/system.go:121` is `time.Now().UnixNano()`. The Java-shaped shims are
+  named like Java without promising Java's guarantees; check the semantics, not
+  the symbol.
+- **cljgo's monotonic clock and sleep exist but are private.** `-nano-time`
+  (`pkg/corelib/macro_support_builtins.go:6`, a real `time.Since(bootInstant)`)
+  and `-sleep-ms` are `defPrivate` in `clojure.core` and unresolvable from user
+  code. Quirk: private vars in the `cljg.os` *namespace* ARE reachable when
+  fully qualified (`cljg.os/-sleep-millis`) while private `clojure.core` ones
+  are not — depend on neither, both are outside the contract.
 - **The JVM lingers ~60s after `future`/`pmap`** (non-daemon agent pool), so a
   timeout-guarded probe reports a false failure. Not a missing capability.
 
@@ -72,7 +88,14 @@ These resolve and behave identically on all four hosts, so use them freely and
 do **not** wrap them: `future` `future?` `deref` `promise` `deliver` `atom`
 `swap!` `slurp` `spit` `pmap` `send` `agent` `read-string` `pr-str` `re-seq`
 `subs` `format` `with-out-str` `bytes` `byte-array` `char` `string?`
-`random-uuid` `rand-int`.
+`random-uuid` `rand-int` `long` `max` `quot`.
+
+Go-method interop of the form `(.UnixMilli t)` / `(.Milliseconds d)` also works
+uniformly on the Go-hosted dialects.
+
+A top-level reader conditional with **no branch for the current host reads as
+nothing** on all four — so `#?(:cljgo (require '[cljg.os]))` is a safe way to pay
+a host-specific require cost only where it applies.
 
 `random-uuid` in particular means **id generation needs no seam**.
 
@@ -80,4 +103,9 @@ do **not** wrap them: `future` `future?` `deref` `promise` `deliver` `atom`
 
 - cljgo: no streaming subprocess (`cljg.io/exec` is run-to-completion).
 - cljgo: no environment-variable access at all.
-- cljgo: no `System/currentTimeMillis`; `cljg.os` has no `sleep`.
+- cljgo: no `System/currentTimeMillis` (use the public `cljg.os/now`); no public
+  monotonic clock or sleep, though both exist privately — worth filing upstream
+  as `cljg.os/mono-nanos` + `cljg.os/sleep`, since the Go seams already exist and
+  only visibility is missing.
+- let-go and cljgo have **no true monotonic clock** reachable from user code, so
+  `koine.time/mono-ms` falls back to a high-water-clamped wall clock there.
