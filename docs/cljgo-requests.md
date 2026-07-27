@@ -1,5 +1,11 @@
 # What koine needs from cljgo
 
+> **Status (2026-07-27):** now carried as **cljgo ADR 0096** — "require-go
+> reaches the Go standard library" — which closes 9 of the 11 issues below, 7 of
+> them purely because Go's stdlib already has the primitive. Clojars consumption
+> is separately covered by **cljgo ADR 0095**. This file remains the koine-side
+> statement of need; ADR 0096 is the design and the effort estimate.
+
 cljgo is a **tier-1** host: a gap here blocks a koine release. Everything below
 was measured on 2026-07-27 against cljgo 0.1.0-dev (both the installed binary
 and the in-repo one), and each item says exactly what unblocks.
