@@ -2,8 +2,16 @@
 
 **Write `.cljc` once, run it on every Clojure.**
 
-One API over four Clojure runtimes — **Clojure 1.12.5**, **cljgo**, **Glojure** and
-**let-go** — all verified, from a single source file.
+One API over four Clojure runtimes, from a single source file:
+
+| tier | runtime | status |
+|---|---|---|
+| **supported** | Clojure (JVM) · cljgo | every capability, or it does not ship |
+| **nice to have** | Glojure | implemented where straightforward |
+| **best effort** | let-go | works today; never gates a release |
+
+Supported means supported: a gap on JVM or cljgo blocks the release. The other
+two are kept green because they are cheap signal, not because they are promised.
 
 *Koine* was the common tongue: the dialect that let people who spoke different Greeks
 understand each other. That is this library's whole job.

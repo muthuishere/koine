@@ -4,6 +4,24 @@ Everything here was **measured** on 2026-07-27 against Clojure 1.12.5, cljgo
 0.1.0-dev, Glojure and let-go (both built from source). Do not trust a README
 over this file; if you find a difference, measure it and update this file.
 
+## Support tiers — read this before deciding how hard to try
+
+Effort is not spread evenly. A new seam function is DONE when tier 1 passes.
+
+| tier | host | obligation |
+|---|---|---|
+| **1 — must** | Clojure (JVM), cljgo | Every capability MUST work. A gap here blocks the release. |
+| **2 — nice to have** | Glojure | Implement when it is straightforward. If it fights back, throw the named error and move on — do not burn a day. |
+| **3 — best effort** | let-go | Only if it falls out for free. Never a reason to delay or reshape anything. |
+
+Tier 2 and 3 branches that already exist are kept and keep running in
+`run-conformance.sh` — they are free signal, and a second Go runtime disagreeing
+is the cheapest way to catch a Go-vs-JVM assumption before it reaches cljgo.
+But they never gate a release and are not promised in the README.
+
+Corollary: a tier-2/3 host failing a check is **information, not a bug to fix**.
+Record it under "Known gaps" and carry on.
+
 ## The four hosts
 
 | host | feature key | run a file | notes |

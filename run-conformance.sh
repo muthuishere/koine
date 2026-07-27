@@ -32,6 +32,7 @@ for check in conformance.cljc *_check.cljc; do
   echo "== ${check%.cljc} =="
   printf '%-10s %s\n' "jvm" "$(timeout 60 clojure -Sdeps '{:paths ["."]}' -M "$check" 2>&1 | tail -1)"
   command -v cljgo >/dev/null && printf '%-10s %s\n' "cljgo"   "$(timeout 60 cljgo run "$check" 2>&1 | tail -1)"
-  command -v lg    >/dev/null && printf '%-10s %s\n' "let-go"  "$(timeout 60 lg "$check" 2>&1 | tail -1)"
-  command -v glj   >/dev/null && printf '%-10s %s\n' "glojure" "$(GLJ_CLASSPATH=. timeout 60 glj "$check" 2>&1 | tail -1)"
+  # tier 2/3 — informational only, never gates a release (see PORTING.md)
+  command -v glj   >/dev/null && printf '%-10s %s\n' "glojure~" "$(GLJ_CLASSPATH=. timeout 60 glj "$check" 2>&1 | tail -1)"
+  command -v lg    >/dev/null && printf '%-10s %s\n' "let-go~"  "$(timeout 60 lg "$check" 2>&1 | tail -1)"
 done
