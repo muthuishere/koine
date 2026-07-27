@@ -62,6 +62,13 @@ Run everything with `./run-conformance.sh`.
 - **Unresolvable symbols fail at COMPILE time on let-go and Glojure**, so a
   `try`/`catch` around a probe does not save you and one bad form kills the
   whole file. Probe capabilities in *separate files*.
+- **There is NO `catch` class symbol that compiles on all four hosts.** Full
+  matrix: `Exception`/`Throwable`/`java.lang.Exception` work on jvm+cljgo+let-go
+  (compile error on Glojure) · `go/any` on Glojure only · `Object` on let-go only
+  · `Error` on jvm+cljgo only. **Consequence:** a namespace forbidden reader
+  conditionals *cannot trap an error at all*, so it must be built on
+  look-before-you-leap primitives (test then read) or on `try`/`finally`, which
+  needs no catch clause and is portable.
 - **Glojure catches with `go/any` — NOT `Exception`, NOT `Throwable`.** Both of
   those fail to *compile* there; Glojure's own stdlib uses `(catch go/any e …)`
   (`pkg/stdlib/clojure/core.glj`). The portable form is
@@ -126,9 +133,18 @@ Run everything with `./run-conformance.sh`.
 
 These resolve and behave identically on all four hosts, so use them freely and
 do **not** wrap them: `future` `future?` `deref` `promise` `deliver` `atom`
-`swap!` `slurp` `spit` `pmap` `send` `agent` `read-string` `pr-str` `re-seq`
+`swap!` `slurp` `spit` `pmap` `read-string` `pr-str` `re-seq`
 `subs` `format` `with-out-str` `bytes` `byte-array` `char` `string?`
-`random-uuid` `rand-int` `long` `max` `quot`.
+`random-uuid` `rand-int` `long` `max` `quot`, `try`/`finally` (no catch — see
+below), multi-arity `defn`, `:refer-clojure :exclude`, `sort-by` with vector
+keys, `re-find`, `(char 0)`, `merge` with nil, `every?`/`some?`/`contains?`, and
+`clojure.string`'s `includes?` `ends-with?` `starts-with?` `index-of`
+`last-index-of` `split` `replace` `blank?`.
+
+**NOT portable, despite appearances:** `agent` and `send`. `(agent 1)` panics on
+Glojure ("invalid memory address or nil pointer dereference") and on let-go
+returns an **Atom**, not an agent — a silent semantic swap. (An earlier revision
+of this file listed both as verified parity. That was wrong.)
 
 Go-method interop of the form `(.UnixMilli t)` / `(.Milliseconds d)` also works
 uniformly on the Go-hosted dialects.
@@ -141,6 +157,13 @@ a host-specific require cost only where it applies.
 
 ## Known gaps (throw a named error; do not fake these)
 
+- `koine.fs` has **no `:lg`/`:glj` branches** — the filesystem seam is 2-host
+  while `slurp`/`spit` are 4-host, which is easy to miss. The primitives exist
+  and are cheap: let-go `os/stat` (nil when missing, `{:dir? bool}` otherwise),
+  Glojure `(os.Stat p)` → `[FileInfo err]` with `.IsDir`. let-go also has
+  `os/free-port`, which would give it the `:port 0` support `serve` refuses.
+- `slurp` throws on a missing file (and on a directory) on all four hosts — no
+  host quietly returns nil, so "just slurp and see" is never an option.
 - cljgo: no streaming subprocess (`cljg.io/exec` is run-to-completion).
 - cljgo: no environment-variable access at all.
 - cljgo: no `System/currentTimeMillis` (use the public `cljg.os/now`); no public
