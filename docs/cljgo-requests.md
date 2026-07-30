@@ -1,10 +1,34 @@
 # What koine needs from cljgo
 
-> **Status (2026-07-27):** now carried as **cljgo ADR 0096** — "require-go
-> reaches the Go standard library" — which closes 9 of the 11 issues below, 7 of
-> them purely because Go's stdlib already has the primitive. Clojars consumption
-> is separately covered by **cljgo ADR 0095**. This file remains the koine-side
-> statement of need; ADR 0096 is the design and the effort estimate.
+> **Status (2026-07-30): the four blockers are CLOSED upstream.** Carried as
+> **cljgo ADR 0104** — "require-go reaches the Go standard library"
+> (renumbered from 0096, which collided with the contrib-tier1 ADR). Decision 1
+> is now **implemented and proven** in cljgo commit `4423d12`: spikes S56–S58
+> build real AOT binaries that read an env var (`os.Getenv`), drive a
+> **long-lived child over piped stdin/stdout** (`exec.Cmd.StdinPipe` — this is
+> MCP stdio transport), **stream** an HTTP response body incrementally
+> (`resp.Body`, not `io.ReadAll`), and read a monotonic clock (`time.Since`).
+>
+> Per the ADR's own sequencing, this lands **with no koine change** — the seam
+> absorbs it. koine's cljgo branches can stop throwing named errors for issues
+> 1–4 once a cljgo carrying `4423d12` is released. Clojars consumption is
+> separately covered by **cljgo ADR 0095**.
+>
+> **Three issues below were corrected on re-measurement (S56):** #7 is
+> **retracted** (the claim was backwards — `clojure.core` privates *are*
+> reachable fully-qualified), and #4 and #10 drop to **minor**
+> (`clojure.core/-nano-time` resolves when qualified; `mkdirs`, `move!`,
+> `stat`, `size`, `temp-dir` already exist in `cljg.io`, so crash-safe write
+> via rename is possible today). This file remains the koine-side statement of
+> need; ADR 0104 is the design, the evidence and the effort estimate.
+>
+> **One new constraint for koine, from S57/S58.** cljgo's AOT discovery pass
+> evaluates your Clojure with `nil` substituted for every host result, so a
+> nil-intolerant pure function applied to a host value breaks the *build*, not
+> just the run — `(clojure.string/trim (.ReadString! rdr 10))` fails at compile
+> time with "trim expects a string, got: nil". koine's cljgo wrappers must keep
+> host results on a nil-tolerant path. Also: `lang.Char` does not coerce to Go
+> `byte` — pass the integer (`10`, not `(char 10)`).
 
 cljgo is a **tier-1** host: a gap here blocks a koine release. Everything below
 was measured on 2026-07-27 against cljgo 0.1.0-dev (both the installed binary
