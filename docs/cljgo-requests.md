@@ -1,6 +1,21 @@
 # What koine needs from cljgo
 
-> **Status (2026-07-30): the four blockers are CLOSED upstream.** Carried as
+> **Status (2026-07-30, evening): asks 1–5 below are DONE and shipped in koine
+> 0.1.0.** cljgo closed them with Clojure-shaped APIs — `cljg.system/getenv`,
+> `cljg.process/spawn` + `cljg.stream`, `cljg.net.http` `:as :stream`,
+> `cljg.date/nano-time` — so **no koine branch uses `require-go` at all**, and
+> the nil-substituting AOT discovery-pass constraint below never applies to
+> koine. All of it is conformance-tested on both supported hosts, interpreted and
+> from `cljgo build` binaries, including a real MCP stdio handshake.
+>
+> **The next round of asks lives in cljgo ADR 0110** — byte-level I/O, ISO-8601
+> dates, base64, and three `clojure.core` parity bugs (`str` of a UUID emits
+> `#uuid "…"`; `clojure.string/replace` rejects a function replacement). Two
+> previously-carried divergences were **retracted** there on measurement: the
+> numeric tower and `format` both match the JVM. This file is kept as the record
+> of round one; 0110 is the live list.
+
+> **Round one (historical): the four blockers are CLOSED upstream.** Carried as
 > **cljgo ADR 0104** — "require-go reaches the Go standard library"
 > (renumbered from 0096, which collided with the contrib-tier1 ADR). Decision 1
 > is now **implemented and proven** in cljgo commit `4423d12`: spikes S56–S58

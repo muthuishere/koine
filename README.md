@@ -143,9 +143,16 @@ tested on both supported hosts, and verified in an AOT binary. What remains:
 - **`clojure.string/replace` with a function replacement is not portable** —
   cljgo's throws `replace expects a String, got: #object[fn]`. `koine.env/expand`
   hand-rolls its scan because of this; a caller doing the same needs to know.
-- **The numeric tower differs.** cljgo raises "integer overflow" where the JVM
-  auto-promotes to BigInt, and Java exception classes (`(Exception. "x")`,
-  anything `java.*`) do not exist there — throw `ex-info`, catch `Throwable`.
+- **Java exception classes do not exist on cljgo** — `(Exception. "x")` and any
+  `java.*` class name fail. Throw `ex-info`, catch `Throwable`. (The numeric
+  tower, by contrast, is NOT a divergence: `*` throws on overflow on *both*
+  hosts — "long overflow" on the JVM, "integer overflow" on cljgo — and `*'`
+  promotes to BigInt on both. Measured 2026-07-30.)
+- **`(str (random-uuid))` differs** — cljgo yields `#uuid "…"` (44 chars), the
+  JVM a bare 36-char UUID. Anything putting an id on the wire must not rely on
+  `str` of a UUID. Filed upstream (cljgo ADR 0110).
+- **No byte-level I/O and no base64 on cljgo**, so koine cannot offer a binary
+  `fs` seam or MCP blob content yet. Also filed as cljgo ADR 0110.
 - **cljgo cannot consume Clojars** (its ADR 0095 is proposed, not shipped), so
   cljgo users take the same source tree by git coordinate. One source, two
   coordinates — see Install.
