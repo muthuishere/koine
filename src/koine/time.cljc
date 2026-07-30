@@ -6,10 +6,11 @@
   measure them with `mono-ms`/`elapsed-ms` (never with `now-ms`, which the
   operating system can move backwards) and stamp events with `now-ms`.")
 
-;; cljgo needs cljg.os interned before `now` is reachable. A top-level reader
-;; conditional with no branch for the other hosts reads as nothing there
-;; (verified on all four hosts), so no other dialect pays for this.
-#?(:cljgo (require '[cljg.os]))
+;; cljgo needs cljg.date / cljg.system interned before `now`, `nano-time` and
+;; `sleep` are reachable. A top-level reader conditional with no branch for the
+;; other hosts reads as nothing there (verified on all four hosts), so no other
+;; dialect pays for this.
+#?(:cljgo (require '[cljg.date] '[cljg.system]))
 
 (def ^:private mono-floor
   "Highest value `mono-ms` has ever returned, on hosts where the underlying
@@ -44,10 +45,10 @@
       ;; Glojure exposes Go's stdlib directly, `/` munged to `:`; Go methods
       ;; are ordinary interop.
       :glj   (.UnixMilli (time.Now))
-      ;; cljgo cannot reach Go's `time` package (require-go only serves the
-      ;; seed registry strings/strconv/math/fmt), but cljg.os/now is a public
-      ;; epoch-millis fn backed by a Go shim.
-      :cljgo (cljg.os/now)
+      ;; cljgo: `cljg.date/now` is the public epoch-millis fn (a
+      ;; time.Now().UnixMilli() shim). cljg.os/now is the older cron-facing
+      ;; spelling of the same thing; cljg.date is where the clock lives now.
+      :cljgo (cljg.date/now)
       :default (throw (ex-info "koine.time/now-ms: no implementation for this host; add a branch in koine/time.cljc" {})))))
 
 (defn mono-ms
@@ -56,20 +57,21 @@
   Only DIFFERENCES between two readings are meaningful — the origin differs
   per host. Guaranteed never to go backwards.
 
-  JVM (System/nanoTime) and Glojure (Go's monotonic clock, via time.Since on
-  a process anchor) have a true monotonic source. let-go and cljgo do NOT:
-  let-go's System/nanoTime is `time.Now().UnixNano()`, i.e. wall clock with no
-  monotonic reading (pkg/rt/system.go:121), and cljgo's monotonic builtin
-  (`-nano-time`) is private to clojure.core and unresolvable from user code.
-  On those two this FALLS BACK to wall clock, clamped to a high-water mark so
-  a backwards clock step shows as zero elapsed rather than a negative
-  duration."
+  JVM (System/nanoTime), Glojure (Go's monotonic clock, via time.Since on a
+  process anchor) and cljgo (`cljg.date/nano-time`, monotonic nanos since
+  process start) have a true monotonic source. let-go does NOT: its
+  System/nanoTime is `time.Now().UnixNano()`, i.e. wall clock with no monotonic
+  reading (pkg/rt/system.go:121). There it FALLS BACK to wall clock, clamped to
+  a high-water mark so a backwards clock step shows as zero elapsed rather than
+  a negative duration."
   []
   (long
    #?(:clj   (quot (System/nanoTime) 1000000)
       :lg    (clamp-mono (System/currentTimeMillis))   ; fallback: wall clock
       :glj   (.Milliseconds (time.Since (swap! glj-anchor (fn [a] (or a (time.Now))))))
-      :cljgo (clamp-mono (cljg.os/now))                ; fallback: wall clock
+      ;; cljgo: a real monotonic reading (Go's monotonic clock) since 2026-07-30
+      ;; — no clamp needed, and unlike -nano-time this one is public.
+      :cljgo (quot (cljg.date/nano-time) 1000000)
       :default (throw (ex-info "koine.time/mono-ms: no implementation for this host; add a branch in koine/time.cljc" {})))))
 
 (defn sleep!
@@ -86,13 +88,10 @@
          :lg    (sleep ms)
          ;; Go's time.Sleep takes a Duration, which is int64 NANOseconds.
          :glj   (time.Sleep (* ms 1000000))
-         ;; cljgo has no Thread/sleep and no reachable Go `time`. `timeout`
-         ;; returns a channel that closes after n ms, so parking on it is a
-         ;; public-API sleep. (cljg.os/-sleep-millis is a direct seam but is
-         ;; a private var, so it is not part of cljgo's contract.)
-         ;; MUST be fully qualified: cljgo refers the core.async aliases into
-         ;; `user` only, so a bare <!!/timeout does not resolve inside an (ns).
-         :cljgo (clojure.core.async/<!! (clojure.core.async/timeout ms))
+         ;; cljgo has no Thread class, but `cljg.system/sleep` is the public
+         ;; time.Sleep shim (ms). It replaces the old parking-on-a-core.async
+         ;; `timeout` channel trick, which worked but spun up a channel to sleep.
+         :cljgo (cljg.system/sleep ms)
          :default (throw (ex-info "koine.time/sleep!: no implementation for this host; add a branch in koine/time.cljc" {})))))
   nil)
 

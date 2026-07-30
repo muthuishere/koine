@@ -6,6 +6,12 @@
   known gap on cljgo — see the cljgo work item in toolnexus ADR 0009."
   #?(:cljgo (:require [cljg.io :as cio])))
 
+;; cljgo: cljg.process (streaming spawn) and cljg.stream (the pipe handles) must
+;; be interned before `spawn` is reachable. A top-level reader conditional with
+;; no branch for the other hosts reads as nothing there, so no other dialect
+;; pays for this (same pattern as koine.time).
+#?(:cljgo (require '[cljg.process] '[cljg.stream]))
+
 (defn sh
   "Run `command` (a vector) to completion. Returns {:out :err :exit}.
   Never throws on a non-zero exit — that is a normal result.
@@ -65,14 +71,27 @@
           (close!     [_]   (.close out) (.waitFor p))))
 
       :cljgo
-      ;; GAP (measured 2026-07-27): cljg.io/exec is run-to-completion — it takes
-      ;; :in as a string and returns after the child exits, so it cannot hold a
-      ;; conversation. `(require-go '[os/exec :as ex])` binds nothing in
-      ;; interpreted mode either. Needs a streaming primitive in cljgo's cljg.io.
-      (throw (ex-info (str "koine.process/spawn: cljgo has no streaming subprocess yet. "
-                           "cljg.io/exec is run-to-completion. Tracked as cljgo work item 1 "
-                           "in toolnexus ADR 0009.")
-                      {:command command :host :cljgo}))
+      ;; CLOSED 2026-07-30: cljgo grew `cljg.process/spawn`, a Clojure-shaped
+      ;; wrapper over os/exec's StdinPipe/StdoutPipe that hands back live
+      ;; cljg.stream handles — {:in :out :err :wait :kill}. Deliberately NOT
+      ;; `require-go '[os/exec]`: raw interop only links AOT, and a host-returned
+      ;; value there rides cljgo's nil-substituting build-discovery pass
+      ;; (`(.StdinPipe cmd)` dies at BUILD time on nil). This route is portable
+      ;; Clojure, so it behaves identically under `cljgo run` and `cljgo build`.
+      ;;
+      ;; `alive?` has no direct shim, so it is tracked here: :wait blocks and
+      ;; yields the exit code, and once it has returned the child is done.
+      (let [p      (cljg.process/spawn (vec (map str command))
+                                       (cond-> {}
+                                         dir (assoc :dir dir)
+                                         env (assoc :env env)))
+            exited (atom nil)
+            wait!  (fn [] (or @exited (reset! exited ((:wait p)))))]
+        (reify Child
+          (send-line! [_ s] (cljg.stream/write-line (:in p) (str s)) nil)
+          (read-line! [_]   (cljg.stream/read-line (:out p)))
+          (alive?     [_]   (nil? @exited))
+          (close!     [_]   (cljg.stream/close (:in p)) (wait!))))
 
       :default
       (throw (ex-info "koine.process/spawn: no implementation for this host; add a branch in koine/process.cljc"

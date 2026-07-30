@@ -84,7 +84,10 @@
 
 (declare parse-value)
 
-(defn- err [i msg]
+;; `parse-err`, not `err`: cljgo's clojure.core has an `err` var, so the shorter
+;; name printed a "already refers to #'clojure.core/err … being replaced" warning
+;; on every load there. A portability library must not warn on a supported host.
+(defn- parse-err [i msg]
   (throw (ex-info (str "json: " msg " at index " i) {:index i})))
 
 (defn- ws? [c] (or (= c \space) (= c \tab) (= c \newline) (= c \return)))
@@ -95,7 +98,7 @@
 (defn- parse-lit [s i lit v]
   (if (and (<= (+ i (count lit)) (count s)) (= lit (subs s i (+ i (count lit)))))
     [v (+ i (count lit))]
-    (err i (str "expected " lit))))
+    (parse-err i (str "expected " lit))))
 
 (def ^:private unesc
   {\" \" \\ \\ \/ \/ \n \newline \r \return \t \tab \b \backspace \f \formfeed})
@@ -105,26 +108,26 @@
 (defn- hex->int [s]
   (reduce (fn [acc c]
             (let [d (str/index-of hex-digits (str/lower-case (str c)))]
-              (when-not d (err 0 "bad \\u escape"))
+              (when-not d (parse-err 0 "bad \\u escape"))
               (+ (* 16 acc) d)))
           0 s))
 
 (defn- parse-string [s i]
-  (when (not= \" (nth s i)) (err i "expected string"))
+  (when (not= \" (nth s i)) (parse-err i "expected string"))
   (loop [i (inc i) acc []]
-    (when (>= i (count s)) (err i "unterminated string"))
+    (when (>= i (count s)) (parse-err i "unterminated string"))
     (let [c (nth s i)]
       (cond
         (= c \") [(apply str acc) (inc i)]
         (= c \\) (let [e (nth s (inc i))]
                    (if (= e \u)
                      (recur (+ i 6) (conj acc (char (hex->int (subs s (+ i 2) (+ i 6))))))
-                     (recur (+ i 2) (conj acc (or (unesc e) (err i "bad escape"))))))
+                     (recur (+ i 2) (conj acc (or (unesc e) (parse-err i "bad escape"))))))
         :else    (recur (inc i) (conj acc c))))))
 
 (defn- parse-number [s i]
   (let [m (re-find #"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?" (subs s i))]
-    (when-not m (err i "bad number"))
+    (when-not m (parse-err i "bad number"))
     ;; the token is regex-validated, so read-string only ever sees a number.
     ;; read-string is clojure.core and behaves identically on every host.
     [(read-string m) (+ i (count m))]))
@@ -133,7 +136,7 @@
   "Shared comma-separated body for arrays and objects."
   [s i close read-item empty-acc]
   (loop [i (skip-ws s (inc i)) acc empty-acc]
-    (when (>= i (count s)) (err i "unterminated collection"))
+    (when (>= i (count s)) (parse-err i "unterminated collection"))
     (if (= close (nth s i))
       [acc (inc i)]
       (let [[acc i'] (read-item s i acc)
@@ -141,7 +144,7 @@
         (cond
           (= \, (nth s i'))  (recur (skip-ws s (inc i')) acc)
           (= close (nth s i')) [acc (inc i')]
-          :else (err i' (str "expected , or " close)))))))
+          :else (parse-err i' (str "expected , or " close)))))))
 
 (defn- read-elem [key-fn]
   (fn [s i acc]
@@ -151,7 +154,7 @@
   (fn [s i acc]
     (let [[k i'] (parse-string s i)
           i'     (skip-ws s i')
-          _      (when (not= \: (nth s i')) (err i' "expected :"))
+          _      (when (not= \: (nth s i')) (parse-err i' "expected :"))
           [v i'] (parse-value s (skip-ws s (inc i')) key-fn)]
       [(assoc acc (key-fn k) v) i'])))
 
@@ -163,7 +166,7 @@
 
 (defn- parse-value [s i key-fn]
   (let [i (skip-ws s i)]
-    (when (>= i (count s)) (err i "unexpected end of input"))
+    (when (>= i (count s)) (parse-err i "unexpected end of input"))
     (let [c (nth s i)]
       (cond
         (= c \{) (parse-seq s i \} (read-entry key-fn) {})
@@ -181,5 +184,5 @@
   ([s {:keys [key-fn] :or {key-fn keyword}}]
    (let [[v i] (parse-value s 0 key-fn)
          i     (skip-ws s i)]
-     (when (< i (count s)) (err i "trailing content"))
+     (when (< i (count s)) (parse-err i "trailing content"))
      v)))

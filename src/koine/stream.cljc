@@ -21,11 +21,19 @@
   | JVM     | yes      | `HttpResponse$BodyHandlers/ofInputStream`          |
   | let-go  | yes      | `(http/request {… :as :stream})` + `io/line-seq`   |
   | Glojure | yes      | `net/http` + chunked `Body.Read` into `bytes.Buffer` |
-  | cljgo   | **no**   | `cljg.net.http` is `io.ReadAll` — no reader exposed |
+  | cljgo   | yes      | `(cljg.net.http/request {… :as :stream})` + `cljg.stream/read-line` |
+
+  The cljgo row was `no` until 2026-07-30 — `cljg.net.http` buffered through
+  `io.ReadAll` and exposed no reader. The `:as :stream` shim closed it.
 
   Do NOT reach for `BodyHandlers/ofLines` on the JVM. It looks like the clean
   route and it is not — see the comment on the `:clj` branch."
   (:require [clojure.string :as str]))
+
+;; cljgo: the streaming client + the stream handles must be interned before
+;; `sse-post`'s cljgo branch is reachable. A top-level reader conditional with no
+;; branch for the other hosts reads as nothing there (same pattern as koine.time).
+#?(:cljgo (require '[cljg.net.http] '[cljg.stream]))
 
 ;; ---------------------------------------------------------------- pure part
 ;;
@@ -201,13 +209,38 @@
          (finally (.close rdr)))
        {:status (.statusCode res)})
 
+     :cljgo
+     ;; CLOSED 2026-07-30: `cljg.net.http` grew a second shim, `-http-stream`,
+     ;; reached with `:as :stream` — the response :body is then a live
+     ;; cljg.stream readable over the OPEN Go resp.Body instead of the
+     ;; io.ReadAll string, and the caller closes it. `cljg.stream/read-line`
+     ;; strips the terminator and returns nil at EOF, which is exactly the
+     ;; JVM `.readLine` contract, so the loop below is the :clj one verbatim.
+     ;;
+     ;; Deliberately NOT `require-go '[net/http]` + `bufio`: raw interop only
+     ;; links AOT, and `(.-Body resp)` rides cljgo's nil-substituting build
+     ;; pass. This route is portable Clojure — identical under run and build.
+     ;;
+     ;; No :timeout override: cljg.net.http defaults to 30 s, which for a
+     ;; STREAM is a deadline on the whole exchange, not just the connect phase.
+     ;; A stream is meant to stay open, so it is raised well past any single
+     ;; LLM response rather than left at the buffered-request default.
+     (let [r   (cljg.net.http/request (cond-> {:method  :post
+                                               :url     url
+                                               :body    (or body "")
+                                               :as      :stream
+                                               :timeout 86400000}
+                                       (seq headers) (assoc :headers headers)))
+           rdr (:body r)]
+       (try
+         (loop []
+           (when-let [line (cljg.stream/read-line rdr)]
+             (emit! on-event line)
+             (recur)))
+         (finally (cljg.stream/close rdr)))
+       {:status (:status r)})
+
      :default
-     ;; cljgo lands here. `cljg.net.http`'s only shim is `-http-do`, which ends
-     ;; in `io.ReadAll(resp.Body)` (pkg/bri/net_http.go) — the reader is closed
-     ;; before Clojure ever sees the response, and there is no second entry
-     ;; point. `(require-go '[net/http])` is accepted but interns nothing, so
-     ;; the raw package is unreachable too. `cljg.io/sh` shelling out to `curl`
-     ;; is also run-to-completion. There is no honest streaming route.
      (throw (ex-info (str "koine.stream/sse-post: no implementation for this host; "
                           "add a branch in koine/stream.cljc")
                      {:url url}))))

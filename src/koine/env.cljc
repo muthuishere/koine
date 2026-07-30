@@ -2,8 +2,12 @@
   "Environment variables, portable.
 
   Values read here are frequently secrets (API keys expanded into MCP headers).
-  Nothing in this namespace logs, prints or caches a value."
-  (:require [clojure.string :as str]))
+  Nothing in this namespace logs, prints or caches a value.")
+
+;; cljgo needs cljg.system interned before `getenv` is reachable. A top-level
+;; reader conditional with no branch for the other hosts reads as nothing there,
+;; so no other dialect pays for this (same pattern as koine.time).
+#?(:cljgo (require '[cljg.system]))
 
 (defn- blank->nil
   "Go's os.Getenv returns \"\" for an unset variable where the JVM returns null.
@@ -23,21 +27,55 @@
           ;; Glojure exposes Go's stdlib directly; `/` in package names is
           ;; munged to `:`, so os.Getenv is reached as-is.
           :glj   (os.Getenv (str name))
-          ;; GAP (verified 2026-07-27, cljgo 0.1.0-dev, both the installed and
-          ;; the repo binary): cljgo has no environment-variable route. cljg.os
-          ;; is cron/service only, there is no System/getenv shim, and
-          ;; require-go reaches only the seed registry — strings/strconv/math/fmt
-          ;; (pkg/eval/host.go:15) — so `(require-go '[os])` fails in BOTH
-          ;; interpreted and AOT mode. Needs getenv in cljgo's cljg.os.
-          :cljgo (throw (ex-info "koine.env/get-env: cljgo has no environment-variable access yet (cljg.os has no getenv; require-go cannot reach Go's os package). Tracked as a cljgo work item in toolnexus ADR 0009."
-                                 {:name (str name) :host :cljgo}))
+          ;; CLOSED 2026-07-30: cljgo grew `cljg.system/getenv` (a Go os.Getenv
+          ;; shim), so this no longer needs `require-go '[os]` — which would
+          ;; only work AOT and would put a host value on cljgo's nil-substituting
+          ;; build-discovery path. cljg.system/getenv already returns nil (not
+          ;; "") for an unset variable; blank->nil above is kept anyway, since
+          ;; it also normalises a variable set to the empty string.
+          :cljgo (cljg.system/getenv (str name))
           :default (throw (ex-info "koine.env/get-env: no implementation for this host; add a branch in koine/env.cljc"
                                    {:name (str name)}))))
        default)))
 
+(defn- var-name
+  "The legal environment-variable name starting at index `i` of `s`
+  ([A-Za-z_][A-Za-z0-9_]*), or nil. Char classes are tested with explicit
+  ranges rather than a regex: `Character/isLetterOrDigit` is Java, and regex
+  behaviour is the least portable thing on these hosts."
+  [s i]
+  (let [n     (count s)
+        head? (fn [c] (or (and (>= (int c) (int \A)) (<= (int c) (int \Z)))
+                          (and (>= (int c) (int \a)) (<= (int c) (int \z)))
+                          (= c \_)))
+        rest? (fn [c] (or (head? c)
+                          (and (>= (int c) (int \0)) (<= (int c) (int \9)))))]
+    (when (and (< i n) (head? (nth s i)))
+      (loop [j (inc i)]
+        (if (and (< j n) (rest? (nth s j)))
+          (recur (inc j))
+          (subs s i j))))))
+
 (defn expand
   "Replace every ${VAR} in `s` with its environment value. An unset variable
-  expands to the empty string, matching the other toolnexus ports."
+  expands to the empty string, matching the other toolnexus ports. A `${…}`
+  whose contents are not a legal variable name is left verbatim.
+
+  Hand-rolled rather than `str/replace` with a function replacement: cljgo's
+  `clojure.string/replace` only accepts a string replacement and throws
+  `replace expects a String, got: #object[fn]` on the function arity (measured
+  2026-07-30). A scan over the string is plain `clojure.core`, so it is
+  identical on every host — rule 3."
   [s]
-  (str/replace (str s) #"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"
-               (fn [[_ v]] (or (get-env v) ""))))
+  (let [s (str s)
+        n (count s)]
+    (loop [i 0, acc []]
+      (if (>= i n)
+        (apply str acc)
+        (let [c (nth s i)]
+          (if (and (= c \$) (< (inc i) n) (= (nth s (inc i)) \{))
+            (let [v (var-name s (+ i 2))]
+              (if (and v (< (+ i 2 (count v)) n) (= (nth s (+ i 2 (count v))) \}))
+                (recur (+ i 3 (count v)) (conj acc (or (get-env v) "")))
+                (recur (inc i) (conj acc c))))
+            (recur (inc i) (conj acc c))))))))

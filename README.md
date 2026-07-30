@@ -60,9 +60,10 @@ portable API, and let everything above it be plain Clojure.
 | namespace | what | how |
 |---|---|---|
 | `koine.json` | `write-str` / `read-str` | **pure `clojure.core`** — no host code, no deps |
-| `koine.env` | `get-env` / `expand` | `System/getenv` (jvm, let-go) · `os.Getenv` (glojure) · gap (cljgo) |
+| `koine.env` | `get-env` / `expand` | `System/getenv` (jvm, let-go) · `os.Getenv` (glojure) · `cljg.system/getenv` (cljgo) |
 | `koine.http` | `request` / `post-json` | `java.net.http` · `net:http` · `http` ns · `cljg.net.http` |
-| `koine.process` | `sh` / `spawn` | `ProcessBuilder` · `os:exec` · `os` ns · `cljg.io` |
+| `koine.stream` | `sse-post` / `parse-sse-line` | `BodyHandlers/ofInputStream` · chunked `Body.Read` · `:as :stream` (let-go, cljgo) |
+| `koine.process` | `sh` / `spawn` | `ProcessBuilder` · `os:exec` · `os` ns · `cljg.io` + `cljg.process` |
 | `koine.fs` | `exists?` `directory?` `list-tree` `find-files` | `java.io.File` · `cljg.io` · `io`/`os` ns |
 
 Reader features, confirmed from each implementation's source: `:clj` · `:cljgo`
@@ -129,47 +130,82 @@ Writing one file for four hosts surfaces things that look fine on the JVM:
 
 ### Known gaps
 
-- **cljgo cannot read environment variables.** `cljg.os` is cron/service only,
-  there is no `System/getenv` shim, and `require-go` reaches only the seed
-  registry — `strings`/`strconv`/`math`/`fmt` (`pkg/eval/host.go:15`) — so
-  `(require-go '[os])` fails in **both** interpreted and AOT mode. Verified
-  against cljgo 0.1.0-dev, both the installed and the in-repo binary.
-- **`process/spawn` is unimplemented on cljgo.** A long-lived child with piped
-  stdin/stdout (what a line-delimited JSON-RPC transport needs) has no cljgo
-  primitive: `cljg.io/exec` is run-to-completion, and `require-go '[os/exec]`
-  binds nothing in interpreted mode. It throws a named error rather than
-  pretending. Needs a streaming primitive in cljgo's `cljg.io`.
+The four cljgo blockers this section used to list — no environment access, no
+streaming subprocess, no streaming HTTP body, no monotonic clock — **all closed
+on 2026-07-30** (cljgo ADR 0109 plus the `cljg.system` / `cljg.process` /
+`cljg.date` / `cljg.net.http` APIs). Every one is now implemented, conformance-
+tested on both supported hosts, and verified in an AOT binary. What remains:
+
+- **No byte-level I/O.** `fs/read-file` / `write-file` are `slurp` / `spit`, so
+  text only. Binary read/write is the one genuinely missing filesystem seam.
+- **No date formatting or parsing.** `koine.time` covers epoch millis, monotonic
+  elapsed and sleep — deliberately not a `java.time` port.
+- **`clojure.string/replace` with a function replacement is not portable** —
+  cljgo's throws `replace expects a String, got: #object[fn]`. `koine.env/expand`
+  hand-rolls its scan because of this; a caller doing the same needs to know.
+- **The numeric tower differs.** cljgo raises "integer overflow" where the JVM
+  auto-promotes to BigInt, and Java exception classes (`(Exception. "x")`,
+  anything `java.*`) do not exist there — throw `ex-info`, catch `Throwable`.
+- **cljgo cannot consume Clojars** (its ADR 0095 is proposed, not shipped), so
+  cljgo users take the same source tree by git coordinate. One source, two
+  coordinates — see Install.
 - **gloat and Joker are untested.** Every seam function ends in a `:default`
   branch that throws a named, actionable error, so adding a dialect is one
   branch in one file.
-- **Only JSON and env are conformance-tested across all four hosts so far.**
-  `http`, `process` and `fs` have branches for each host but are verified on the
-  JVM only.
+- **Tier 2/3 hosts lack `process/sh`.** Glojure and let-go have no subprocess
+  route, so `process_check`, `fs_check` and `mcp_check` do not run there. They
+  are best-effort tiers and never gate a release (see `PORTING.md`).
 
 ## Install
+
+One source tree, two coordinates — cljgo cannot resolve Maven deps yet (its
+`dep` accepts `{:git …}` / `{:path …}` only), so JVM users take the Clojars
+artifact and cljgo users take the same code by git.
 
 ```clojure
 ;; deps.edn — JVM
 io.github.muthuishere/koine {:mvn/version "0.1.0"}
-
-;; deps.edn — cljgo (Clojars consumption isn't supported by cljgo yet)
-io.github.muthuishere/koine {:git/url "https://github.com/muthuishere/koine" :git/sha "…"}
 ```
+
+```clojure
+;; build.cljgo — cljgo
+(defn build [b]
+  (dep b "koine" {:git "https://github.com/muthuishere/koine" :ref "v0.1.0"})
+  (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
+```
+
+**The API is unstable at `0.1.0`.** `koine.process`, `koine.route` and
+`koine.server` are the most likely to move; `koine.json`, `koine.env` and
+`koine.time` are settled.
 
 ## Test
 
 ```bash
-clojure -M:test          # JVM unit suite (38 assertions)
-./run-conformance.sh     # the same file on every installed host
+clojure -M:test          # JVM unit suite (82 tests, 281 assertions)
+./run-conformance.sh     # every src/*_check.cljc on every installed host
 ```
 
+Both supported hosts pass every check, interpreted **and** as a `cljgo build`
+AOT binary (2026-07-30):
+
 ```
-== JSON encode/decode conformance ==
-jvm        9/9 pass
-cljgo      9/9 pass
-let-go     9/9 pass
-glojure    9/9 pass
+                      jvm    cljgo
+conformance (json)    9/9    9/9
+env_check            12/12  12/12
+fs_check             19/19  19/19
+http_check            2/2    2/2
+mcp_check             5/5    5/5    ← a real MCP stdio handshake through spawn
+process_check        16/16  16/16
+route_check          43/43  43/43
+server_check         10/10  10/10
+stream_check         29/29  29/29   ← arrival times, not just line content
+time_check           14/14  14/14
 ```
+
+`mcp_check` is the one that matters most: `initialize` →
+`notifications/initialized` → `tools/list` → `tools/call` against
+`@modelcontextprotocol/server-everything`, which is the workload `spawn` exists
+for. It needs `npx` on PATH and skips cleanly without it.
 
 ## License
 

@@ -1,5 +1,0 @@
-(require 'koine.env)
-(alias 'env 'koine.env)
-(println "HOME set:" (boolean (seq (str (env/get-env "HOME")))))
-(println "missing->default:" (env/get-env "NOPE_XYZ" "fallback"))
-(println "expand:" (env/expand "path=${HOME}/x unset=[${NOPE_XYZ}]"))
