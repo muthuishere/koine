@@ -71,6 +71,40 @@
     (is (= [] (fs/find-files root ".nope")))
     (is (vector? (fs/find-files root ".nope")))))
 
+(deftest bytes-round-trip-unchanged
+  (let [p   (str root "/blob.bin")
+        all (byte-array (map (fn [i] (if (> i 127) (- i 256) i)) (range 256)))]
+    (fs/write-bytes p all)
+    (is (= 256 (alength (fs/read-bytes p))))
+    (is (= (vec all) (vec (fs/read-bytes p))))
+    (testing "signed elements, matching the JVM's byte[]"
+      (is (= -128 (nth (vec (fs/read-bytes p)) 128)))
+      (is (= -1 (nth (vec (fs/read-bytes p)) 255))))))
+
+(deftest bytes-carry-what-the-text-route-cannot
+  (testing "0x80 alone is never legal UTF-8, so slurp/spit would corrupt it"
+    (let [p (str root "/raw.bin")]
+      (fs/write-bytes p (byte-array [0 1 2 -128 -1 65]))
+      (is (= [0 1 2 -128 -1 65] (vec (fs/read-bytes p))))
+      (testing "and the text route demonstrably does corrupt it — the char
+      COUNT survives (each bad byte becomes one replacement rune), so only the
+      bytes show the damage"
+        (is (not= [0 1 2 -128 -1 65]
+                  (vec (.getBytes ^String (fs/read-file p) "UTF-8"))))))))
+
+(deftest write-bytes-truncates-and-returns-nil
+  (let [p (str root "/t.bin")]
+    (fs/write-bytes p (byte-array [1 2 3 4 5]))
+    (is (nil? (fs/write-bytes p (byte-array [9]))))
+    (testing "the old tail must not survive"
+      (is (= [9] (vec (fs/read-bytes p)))))))
+
+(deftest an-empty-byte-file-is-legal
+  (let [p (str root "/e.bin")]
+    (fs/write-bytes p (byte-array 0))
+    (is (= 0 (alength (fs/read-bytes p))))
+    (is (fs/exists? p))))
+
 (deftest find-files-matches-a-suffix-not-an-extension
   (testing "the argument is a plain suffix — a whole filename works too"
     (is (= [(str root "/a.txt")] (fs/find-files root "a.txt")))))

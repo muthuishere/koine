@@ -99,3 +99,44 @@
   "Milliseconds elapsed since `start`, which must be a `mono-ms` reading."
   [start]
   (- (mono-ms) (long start)))
+
+;; ------------------------------------------------------------ the wire format
+;;
+;; Epoch millis is the internal currency (it is what `now-ms` returns and what
+;; every host can hold as a long); ISO-8601 is what protocols actually carry.
+;; Only these two conversions are portable, and deliberately nothing else: a
+;; pattern-based `format` is NOT here, because Go's layout strings ("2006-01-02")
+;; and java.time's patterns ("yyyy-MM-dd") are different languages and koine
+;; will not pretend one is the other. Unblocked on cljgo by ADR 0110.
+
+(defn iso-str
+  "An instant — epoch milliseconds, defaulting to now — as an ISO-8601 / RFC 3339
+  UTC string.
+
+  Millisecond precision, matching `java.time.Instant/toString`: no fractional
+  part on a whole second, exactly three digits otherwise. `(iso-str 0)` is
+  \"1970-01-01T00:00:00Z\" and `(iso-str 1500)` is \"1970-01-01T00:00:01.500Z\"
+  on every host."
+  ([] (iso-str (now-ms)))
+  ([millis]
+   #?(:clj   (str (java.time.Instant/ofEpochMilli (long millis)))
+      :cljgo (cljg.date/format-iso (long millis))
+      :default (throw (ex-info "koine.time/iso-str: no implementation for this host; add a branch in koine/time.cljc" {})))))
+
+(defn parse-iso
+  "An ISO-8601 / RFC 3339 timestamp as epoch milliseconds, as a long.
+
+  The fractional part is optional and an offset is honoured rather than
+  dropped, so \"…T12:00:00+05:30\" and \"…T06:30:00Z\" parse equal. Throws,
+  naming the input, when the string is not an instant."
+  [s]
+  (long
+   #?(:clj   (try (.toEpochMilli (java.time.Instant/parse (str s)))
+                  (catch java.time.format.DateTimeParseException _
+                    ;; Instant/parse rejects a non-Z offset; OffsetDateTime takes it.
+                    (try (.toEpochMilli (.toInstant (java.time.OffsetDateTime/parse (str s))))
+                         (catch Exception _
+                           (throw (ex-info (str "koine.time/parse-iso: not an ISO-8601 instant: " (pr-str s))
+                                           {:input s}))))))
+      :cljgo (cljg.date/parse-iso (str s))
+      :default (throw (ex-info "koine.time/parse-iso: no implementation for this host; add a branch in koine/time.cljc" {})))))

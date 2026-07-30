@@ -39,3 +39,36 @@
 
 (defn read-file  [path] (slurp path))          ; clojure.core, portable
 (defn write-file [path s] (spit path s))       ; clojure.core, portable
+
+;; --------------------------------------------------------------- binary
+;;
+;; `slurp`/`spit` are TEXT. They decode as UTF-8, so a byte that is not valid
+;; UTF-8 comes back as the replacement rune and the round trip is lossy — on
+;; BOTH hosts, identically (a 12-byte binary file reads back as 13 characters).
+;; That is not a divergence to normalise; it is why a byte seam has to exist
+;; separately. Unblocked by cljgo ADR 0110.
+
+(defn read-bytes
+  "The whole file at `path` as a byte array. Use this, never `read-file`, for
+  anything that is not text — the text route is lossy for non-UTF-8 bytes."
+  [path]
+  #?(:clj   (java.nio.file.Files/readAllBytes
+             (.toPath (java.io.File. ^String (str path))))
+     :cljgo (cio/read-bytes (str path))
+     :default (throw (ex-info "koine.fs/read-bytes: no implementation for this host; add a branch in koine/fs.cljc"
+                              {:path path}))))
+
+(defn write-bytes
+  "Write byte array `bs` to `path`, replacing any existing file. Returns nil."
+  [path bs]
+  #?(:clj   (do (java.nio.file.Files/write
+                 (.toPath (java.io.File. ^String (str path)))
+                 ^bytes bs
+                 ^"[Ljava.nio.file.OpenOption;" (into-array java.nio.file.OpenOption
+                                                            [java.nio.file.StandardOpenOption/CREATE
+                                                             java.nio.file.StandardOpenOption/TRUNCATE_EXISTING
+                                                             java.nio.file.StandardOpenOption/WRITE]))
+                 nil)
+     :cljgo (do (cio/write-bytes (str path) bs) nil)
+     :default (throw (ex-info "koine.fs/write-bytes: no implementation for this host; add a branch in koine/fs.cljc"
+                              {:path path}))))

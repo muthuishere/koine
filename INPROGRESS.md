@@ -1,6 +1,6 @@
 # koine — in progress
 
-Working state as of **2026-07-30 (evening)**. Not a spec, not a promise — the
+Working state as of **2026-07-30 (night)**. Not a spec, not a promise — the
 honest picture of what is done and what is not.
 
 Read `README.md` for what koine *is*.
@@ -13,7 +13,9 @@ Read `README.md` for what koine *is*.
 done.** All four cljgo blockers are implemented and verified, the untested
 host-touching namespaces have tests, and a real MCP handshake runs through
 `process/spawn` on both supported hosts — interpreted and as an AOT binary.
-`0.1.0` is cut with the API explicitly marked unstable.
+`0.1.0` shipped; **`0.2.0` follows** with the round-two cljgo gaps closed —
+byte I/O, ISO-8601 dates and base64 are now koine seams, all filed upstream as
+cljgo ADR 0110 and implemented there rather than worked around here.
 
 ---
 
@@ -48,7 +50,7 @@ it calls `cljg.system/sleep`.
 
 ## Namespace status
 
-JVM suite: **82 tests, 281 assertions, 0 failures** (`clojure -M:test`) — was
+JVM suite: **100 tests, 338 assertions, 0 failures** (`clojure -M:test`) — was
 41/181. Conformance: every check passes on both supported hosts, and every one
 also passes from a `cljgo build` binary.
 
@@ -95,8 +97,10 @@ Both supported hosts were driven as real *consumers*, not just as test hosts:
 
 ## Still open
 
-- **No byte-level I/O** (`fs` is `slurp`/`spit`) and **no date formatting**.
-  Both are real gaps for a general-purpose library; neither blocks toolnexus.
+- **Pattern-based date formatting is deliberately absent** — Go layouts and
+  java.time patterns are different languages and koine will not fake a
+  translation. `iso-str` / `parse-iso` cover the wire format, which is what
+  protocols carry. Byte I/O and base64 are now IN (0.2.0).
 - **cljgo cannot consume Clojars** (its ADR 0095 is proposed), so cljgo users
   take the git coordinate. One source, two coordinates until 0095 lands.
 - **Is `koine.route` / `koine.server` in scope?** They sit outside the four seam

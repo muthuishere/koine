@@ -64,7 +64,9 @@ portable API, and let everything above it be plain Clojure.
 | `koine.http` | `request` / `post-json` | `java.net.http` · `net:http` · `http` ns · `cljg.net.http` |
 | `koine.stream` | `sse-post` / `parse-sse-line` | `BodyHandlers/ofInputStream` · chunked `Body.Read` · `:as :stream` (let-go, cljgo) |
 | `koine.process` | `sh` / `spawn` | `ProcessBuilder` · `os:exec` · `os` ns · `cljg.io` + `cljg.process` |
-| `koine.fs` | `exists?` `directory?` `list-tree` `find-files` | `java.io.File` · `cljg.io` · `io`/`os` ns |
+| `koine.fs` | `exists?` `directory?` `list-tree` `find-files` `read-bytes` `write-bytes` | `java.io.File` · `java.nio` · `cljg.io` · `io`/`os` ns |
+| `koine.time` | `now-ms` `mono-ms` `sleep!` `iso-str` `parse-iso` | `System/nanoTime` · `java.time.Instant` · `cljg.date` · `cljg.system` |
+| `koine.codec` | `encode` / `decode` / `decode-bytes` (base64) | `java.util.Base64` · `cljg.security` |
 
 Reader features, confirmed from each implementation's source: `:clj` · `:cljgo`
 (cljgo ADR 0036) · `:glj` (`pkg/reader/reader.go:1403`) · `:lg`
@@ -130,29 +132,26 @@ Writing one file for four hosts surfaces things that look fine on the JVM:
 
 ### Known gaps
 
-The four cljgo blockers this section used to list — no environment access, no
-streaming subprocess, no streaming HTTP body, no monotonic clock — **all closed
-on 2026-07-30** (cljgo ADR 0109 plus the `cljg.system` / `cljg.process` /
-`cljg.date` / `cljg.net.http` APIs). Every one is now implemented, conformance-
-tested on both supported hosts, and verified in an AOT binary. What remains:
+**Two rounds of cljgo gaps are now closed, both upstream rather than worked
+around here.** Round one (cljgo ADR 0109): environment access, streaming
+subprocess, streaming HTTP body, monotonic clock. Round two (cljgo ADR 0110):
+byte-level I/O, ISO-8601 dates, base64, and two `clojure.core` parity bugs —
+`str` of a UUID emitting `#uuid "…"`, and `clojure.string/replace` rejecting a
+function replacement. Every one is implemented, conformance-tested on both
+supported hosts, and verified in an AOT binary.
 
-- **No byte-level I/O.** `fs/read-file` / `write-file` are `slurp` / `spit`, so
-  text only. Binary read/write is the one genuinely missing filesystem seam.
-- **No date formatting or parsing.** `koine.time` covers epoch millis, monotonic
-  elapsed and sleep — deliberately not a `java.time` port.
-- **`clojure.string/replace` with a function replacement is not portable** —
-  cljgo's throws `replace expects a String, got: #object[fn]`. `koine.env/expand`
-  hand-rolls its scan because of this; a caller doing the same needs to know.
+That is the pattern to expect: koine files the need upstream and waits, rather
+than shipping a branch that throws on a tier-1 host. What remains:
+
+- **No pattern-based date formatting**, deliberately. `koine.time/iso-str` and
+  `parse-iso` cover the wire format; a `format` taking a pattern would have to
+  reconcile Go layouts (`2006-01-02`) with java.time patterns (`yyyy-MM-dd`),
+  which are different languages. koine will not pretend one is the other.
 - **Java exception classes do not exist on cljgo** — `(Exception. "x")` and any
   `java.*` class name fail. Throw `ex-info`, catch `Throwable`. (The numeric
   tower, by contrast, is NOT a divergence: `*` throws on overflow on *both*
   hosts — "long overflow" on the JVM, "integer overflow" on cljgo — and `*'`
   promotes to BigInt on both. Measured 2026-07-30.)
-- **`(str (random-uuid))` differs** — cljgo yields `#uuid "…"` (44 chars), the
-  JVM a bare 36-char UUID. Anything putting an id on the wire must not rely on
-  `str` of a UUID. Filed upstream (cljgo ADR 0110).
-- **No byte-level I/O and no base64 on cljgo**, so koine cannot offer a binary
-  `fs` seam or MCP blob content yet. Also filed as cljgo ADR 0110.
 - **cljgo cannot consume Clojars** (its ADR 0095 is proposed, not shipped), so
   cljgo users take the same source tree by git coordinate. One source, two
   coordinates — see Install.
@@ -171,24 +170,24 @@ artifact and cljgo users take the same code by git.
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.1.0"}
+net.clojars.muthuishere/koine {:mvn/version "0.2.0"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "koine" {:git "https://github.com/muthuishere/koine" :ref "v0.1.0"})
+  (dep b "koine" {:git "https://github.com/muthuishere/koine" :ref "v0.2.0"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
-**The API is unstable at `0.1.0`.** `koine.process`, `koine.route` and
+**The API is unstable at `0.2.0`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env` and
 `koine.time` are settled.
 
 ## Test
 
 ```bash
-clojure -M:test          # JVM unit suite (82 tests, 281 assertions)
+clojure -M:test          # JVM unit suite (100 tests, 338 assertions)
 ./run-conformance.sh     # every src/*_check.cljc on every installed host
 ```
 
@@ -198,6 +197,7 @@ AOT binary (2026-07-30):
 ```
                       jvm    cljgo
 conformance (json)    9/9    9/9
+bytes_check          17/17  17/17   ← every byte 0-255, signed, through base64
 env_check            12/12  12/12
 fs_check             19/19  19/19
 http_check            2/2    2/2
@@ -206,7 +206,7 @@ process_check        16/16  16/16
 route_check          43/43  43/43
 server_check         10/10  10/10
 stream_check         29/29  29/29   ← arrival times, not just line content
-time_check           14/14  14/14
+time_check           28/28  28/28   ← includes exact ISO-8601 strings
 ```
 
 `mcp_check` is the one that matters most: `initialize` →
