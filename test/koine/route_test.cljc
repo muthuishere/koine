@@ -134,7 +134,7 @@
     (with-servers
       (fn [req] (reset! seen req)
         {:status 201 :headers {"content-type" "text/plain"} :body (str "up:" (:path req) ":" (:body req))})
-      (fn [base] {"/api/*" (route/proxy base)})
+      (fn [base] {"/api/*" (route/forward base)})
       (fn [edge _]
         (let [res (http/request {:method :post :url (str edge "/api/v1/x") :body "payload"})]
           (is (= 201 (:status res)) "the upstream status is relayed verbatim")
@@ -146,7 +146,7 @@
   (let [seen (atom nil)]
     (with-servers
       (fn [req] (reset! seen req) {:body "ok"})
-      (fn [base] {"/*" (route/proxy base {:headers {"x-forwarded-host" "edge"}})})
+      (fn [base] {"/*" (route/forward base {:headers {"x-forwarded-host" "edge"}})})
       (fn [edge _]
         ;; "connection"/"upgrade"/"host" cannot even be SENT by the JVM
         ;; client (restricted header names), so the inbound case is exercised
@@ -195,7 +195,7 @@
   (let [log (atom [])]
     (with-servers
       (fn [req] {:body (str "up" (:path req))})
-      (fn [base] {"/api/*"    (route/proxy base)
+      (fn [base] {"/api/*"    (route/forward base)
                   "/assets/*" (route/static "src")
                   [:get "/health"] (fn [_] {:body "ok"})})
       (fn [edge _]

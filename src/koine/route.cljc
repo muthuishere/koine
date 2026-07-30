@@ -36,9 +36,9 @@
     :path-info    the part of the path AFTER the matched prefix (\"/a.css\")
     :route-prefix the prefix that matched (\"/assets/\")
 
-  `router`, `static` and `proxy` all read `:path-info` in preference to
+  `router`, `static` and `forward` all read `:path-info` in preference to
   `:path`, which is what makes them nest: a router inside a router matches on
-  the remainder, and `static`/`proxy` mounted under `/assets/*` see
+  the remainder, and `static`/`forward` mounted under `/assets/*` see
   `/a.css`, not `/assets/a.css`. `:path` is never rewritten, so logging and
   the handler's own view of the original URL stay intact.
 
@@ -48,13 +48,12 @@
     host's `slurp` decoding allows. Content types for binary extensions are
     still emitted, because getting the header right costs nothing.
   - `koine.server` hands over the path only, never the query string, so
-    `proxy` forwards the path and drops any query.
+    `forward` forwards the path and drops any query.
   - `koine.fs/exists?`/`directory?` are implemented for the JVM and cljgo
     only. `static` therefore takes `:exists?`/`:directory?`/`:read`
     overrides: the DEFAULTS are the `koine.fs` fns, and a host where those
     are unimplemented can supply its own without this file growing a branch.
     (The fix belongs in `koine/fs.cljc`, not here.)"
-  (:refer-clojure :exclude [proxy])
   (:require [clojure.string :as str]
             [koine.fs :as fs]
             [koine.http :as http]
@@ -320,16 +319,25 @@
               (if (contains? hop-by-hop k) m (assoc m k (str v)))))
           {} headers))
 
-(defn proxy
+;; `forward`, not `proxy`. The old name shadowed `clojure.core/proxy` and needed
+;; a `:refer-clojure :exclude` to do it — which made the whole namespace
+;; UNLOADABLE on cljgo: its Java-interop gate reads the bare symbol `proxy` as
+;; the JVM class-definition special form and refuses the file
+;; ("namespace koine.route requires Java interop and cannot load on cljgo —
+;; (proxy …)", measured 2026-07-30 against the published 0.2.0 artifact). The
+;; detector is being conservative about a name it cannot prove is a plain defn,
+;; and it is right to be: a portability library has no business shadowing a core
+;; name in the first place. Same lesson as `err` -> `parse-err` in koine.json.
+(defn forward
   "Forward the request to `target-base` and return the upstream response.
 
   Mounted under a wildcard route it forwards the remainder:
-  `{\"/api/*\" (proxy \"http://up:9000\")}` sends `/api/v1/x` to
+  `{\"/api/*\" (forward \"http://up:9000\")}` sends `/api/v1/x` to
   `http://up:9000/v1/x`. Hop-by-hop headers are stripped in BOTH directions.
 
   opts: {:timeout-ms 30000
          :headers {\"x-forwarded-host\" \"…\"}}  ; merged in, wins over inbound"
-  ([target-base] (proxy target-base {}))
+  ([target-base] (forward target-base {}))
   ([target-base {:keys [timeout-ms headers] :or {timeout-ms 30000}}]
    (let [base (strip-trailing-slash target-base)]
      (fn [req]

@@ -147,14 +147,16 @@ than shipping a branch that throws on a tier-1 host. What remains:
   `parse-iso` cover the wire format; a `format` taking a pattern would have to
   reconcile Go layouts (`2006-01-02`) with java.time patterns (`yyyy-MM-dd`),
   which are different languages. koine will not pretend one is the other.
+- **Do not shadow a `clojure.core` name.** cljgo's dependency resolver gates
+  each namespace on a static Java-interop scan, and a bare `proxy` / `err` /
+  `deftype`-shaped symbol can read as the JVM special form even when it is your
+  own `defn` — which rejects the whole file, not just the fn. koine renamed two
+  of these (`route/proxy` -> `forward`, `json/err` -> `parse-err`).
 - **Java exception classes do not exist on cljgo** — `(Exception. "x")` and any
   `java.*` class name fail. Throw `ex-info`, catch `Throwable`. (The numeric
   tower, by contrast, is NOT a divergence: `*` throws on overflow on *both*
   hosts — "long overflow" on the JVM, "integer overflow" on cljgo — and `*'`
   promotes to BigInt on both. Measured 2026-07-30.)
-- **cljgo cannot consume Clojars** (its ADR 0095 is proposed, not shipped), so
-  cljgo users take the same source tree by git coordinate. One source, two
-  coordinates — see Install.
 - **gloat and Joker are untested.** Every seam function ends in a `:default`
   branch that throws a named, actionable error, so adding a dialect is one
   branch in one file.
@@ -164,25 +166,31 @@ than shipping a branch that throws on a tier-1 host. What remains:
 
 ## Install
 
-One source tree, two coordinates — cljgo cannot resolve Maven deps yet (its
-`dep` accepts `{:git …}` / `{:path …}` only), so JVM users take the Clojars
-artifact and cljgo users take the same code by git.
+**One artifact, one coordinate, both hosts.** cljgo resolves Maven deps from
+Clojars as of its ADR 0095, so the git-coordinate workaround is gone — cljgo
+pulls the same published jar the JVM does, and prunes `org.clojure/clojure` from
+it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.2.0"}
+net.clojars.muthuishere/koine {:mvn/version "0.3.0"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "koine" {:git "https://github.com/muthuishere/koine" :ref "v0.2.0"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.3.0"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
-**The API is unstable at `0.2.0`.** `koine.process`, `koine.route` and
-`koine.server` are the most likely to move; `koine.json`, `koine.env` and
-`koine.time` are settled.
+**The API is unstable at `0.3.0`.** `koine.process`, `koine.route` and
+`koine.server` are the most likely to move; `koine.json`, `koine.env`,
+`koine.time`, `koine.fs` and `koine.codec` are settled.
+
+`0.3.0` renamed `koine.route/proxy` to **`koine.route/forward`** — the old name
+shadowed `clojure.core/proxy`, which made the whole namespace unloadable on
+cljgo (its Java-interop gate reads the bare symbol as the JVM class-definition
+special form). If you were on `0.2.0`, that is the one call to change.
 
 ## Test
 

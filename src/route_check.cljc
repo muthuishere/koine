@@ -66,7 +66,7 @@
 
 (def edge
   (srv/serve (r/routes->handler
-               {"/api/*"    (r/proxy (str "http://127.0.0.1:" up-port))
+               {"/api/*"    (r/forward (str "http://127.0.0.1:" up-port))
                 "/static/*" files
                 "/hi"       (fn [_] {:status 200 :body "hi"})}
                {:middleware [(fn [hh] (r/wrap-log hh (fn [e] (swap! logged conj e))))]})
