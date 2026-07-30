@@ -17,7 +17,11 @@
   (:require [clojure.tools.build.api :as b]
             [deps-deploy.deps-deploy :as dd]))
 
-(def lib 'io.github.muthuishere/koine)
+;; net.clojars.muthuishere, not io.github.muthuishere: Clojars pre-verifies
+;; net.clojars.<user> for every account, while io.github.<user> needs a one-time
+;; GitHub verification the group has not been through (a 403 "Group
+;; 'io.github.muthuishere' doesn't exist" on deploy, 2026-07-30).
+(def lib 'net.clojars.muthuishere/koine)
 (def version "0.1.0")
 (def class-dir "target/classes")
 (def jar-file (format "target/%s-%s.jar" (name lib) version))

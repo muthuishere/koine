@@ -164,7 +164,7 @@ artifact and cljgo users take the same code by git.
 
 ```clojure
 ;; deps.edn — JVM
-io.github.muthuishere/koine {:mvn/version "0.1.0"}
+net.clojars.muthuishere/koine {:mvn/version "0.1.0"}
 ```
 
 ```clojure

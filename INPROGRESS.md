@@ -86,7 +86,7 @@ had never run before today.
 Both supported hosts were driven as real *consumers*, not just as test hosts:
 
 - **JVM** — `clojure -T:build install`, then a separate project depending on
-  `io.github.muthuishere/koine {:mvn/version "0.1.0"}` from `~/.m2`: spawn +
+  `net.clojars.muthuishere/koine {:mvn/version "0.1.0"}` from `~/.m2`: spawn +
   JSON + env + monotonic clock all live.
 - **cljgo** — a separate project declaring `(dep b "koine" {:path …})`, both
   `cljgo run` and `cljgo build`; the installed binary produces the same result.
@@ -112,8 +112,10 @@ Both supported hosts were driven as real *consumers*, not just as test hosts:
 read the `.cljc`. `deps.edn` gained a `:build` alias carrying tools.build and
 deps-deploy; those are release-time only, so the library still has zero
 third-party deps on a consumer's classpath. License is MIT (`LICENSE`, in the
-pom). Group `io.github.muthuishere`, verifiable through the GitHub account of the
-same name. Deploy reads `CLOJARS_USERNAME` / `CLOJARS_PASSWORD` from the
+pom). Group **`net.clojars.muthuishere`** — Clojars pre-verifies
+`net.clojars.<user>` for every account, whereas `io.github.<user>` needs a
+one-time GitHub verification this account has not done (deploy under
+`io.github.muthuishere` 403s with "Group … doesn't exist"). Deploy reads `CLOJARS_USERNAME` / `CLOJARS_PASSWORD` from the
 environment — a deploy token, never a file in this repo.
 
 Do **not** use `cljgo publish clojars`: it never contacts clojars.org, it writes
