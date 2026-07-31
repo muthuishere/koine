@@ -61,7 +61,8 @@
             which Glojure refuses."
   (let [all #{:json/read-write :env/get-env :time/clock :time/iso
               :fs/text :fs/bytes :codec/base64-string :codec/base64-bytes
-              :process/sh :process/spawn :http/request :http/timeout
+              :process/sh :process/spawn :process/stderr-capture
+              :http/request :http/timeout
               :stream/sse :route/router :server/serve}]
     #?(:clj   all
        :cljgo all
@@ -69,11 +70,18 @@
        ;; net/http.Client with its Timeout field set, and Glojure rejects struct
        ;; field assignment outright, so a hung server hangs the caller forever.
        ;; Measured 2026-07-31. A retry policy must not assume a deadline here.
-       :glj   (disj all :http/timeout)
+       ;; :process/stderr-capture is absent on Glojure for a subtle reason worth
+       ;; stating: the stderr DRAIN works there — a child writing 200 KiB to
+       ;; stderr does not deadlock, which is the bug that mattered — but the
+       ;; lines never become visible in the collecting atom across the goroutine
+       ;; a `future` runs on, so `stderr-lines` returns []. The deadlock is
+       ;; fixed; only the diagnostics are missing. Measured 2026-07-31.
+       :glj   (disj all :http/timeout :process/stderr-capture)
        ;; `disj`, not clojure.set/difference: Glojure has no clojure.set at all
        ;; ("failed to load /clojure/set: not found in load path"), and this file
        ;; must load on every host — it is the one that says what a host can do.
-       :lg    (disj all :fs/bytes :codec/base64-bytes :process/spawn :http/timeout)
+       :lg    (disj all :fs/bytes :codec/base64-bytes :process/spawn :http/timeout
+                       :process/stderr-capture)
        :default #{})))
 
 (defn supports?
