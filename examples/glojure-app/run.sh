@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION=0.4.0
+VERSION=0.4.1
 JAR="$HOME/.m2/repository/net/clojars/muthuishere/koine/$VERSION/koine-$VERSION.jar"
 [ -f "$JAR" ] || { echo "fetching koine $VERSION from Clojars"; clojure -Sdeps "{:deps {net.clojars.muthuishere/koine {:mvn/version \"$VERSION\"}}}" -M -e nil >/dev/null; }
 

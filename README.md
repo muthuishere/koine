@@ -174,17 +174,17 @@ it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.4.0"}
+net.clojars.muthuishere/koine {:mvn/version "0.4.1"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.0"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.1"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
-**The API is unstable at `0.4.0`.** `koine.process`, `koine.route` and
+**The API is unstable at `0.4.1`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env`,
 `koine.time`, `koine.fs` and `koine.codec` are settled.
 
@@ -195,17 +195,19 @@ special form). If you were on `0.2.0`, that is the one call to change.
 
 ## Examples
 
-Two real projects — one Clojure (JVM), one cljgo — consuming koine **from
-Clojars** and running the **same source and the same tests** on both hosts:
+Four real projects — Clojure (JVM), cljgo, Glojure and let-go — consuming koine
+**from Clojars** and running the **same source and the same tests** on all four:
 
 ```bash
 ./examples/run-both.sh
 ```
 
 ```
-== Clojure (JVM) — tests      Ran 9 tests containing 31 assertions. 0 failures
-== cljgo — tests              Ran 9 tests containing 31 assertions. 0 failures
-== diff                       identical (modulo workdir, timestamp, duration)
+== Clojure (JVM) - tests   Ran 9 tests containing 34 assertions. 0 failures
+== cljgo - tests           Ran 9 tests containing 34 assertions. 0 failures
+== Glojure - tests         Ran 9 tests containing 34 assertions. 0 failures
+== let-go - tests          Tests: 9 Pass: 23 Fail: 0 Error: 0
+== diff                    jvm == cljgo == glojure; let-go took its documented fallbacks
 ```
 
 `examples/clojure-app/src/demo/app.cljc` has no reader conditional, no `java.`

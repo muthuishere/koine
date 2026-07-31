@@ -4,7 +4,7 @@
   <packaging>jar</packaging>
   <groupId>net.clojars.muthuishere</groupId>
   <artifactId>koine</artifactId>
-  <version>0.4.0</version>
+  <version>0.4.1</version>
   <name>koine</name>
   <dependencies>
     <dependency>
@@ -34,7 +34,7 @@
     <url>https://github.com/muthuishere/koine</url>
     <connection>scm:git:https://github.com/muthuishere/koine.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/muthuishere/koine.git</developerConnection>
-    <tag>a4b85a6ead0e68625b123006150d83a77c98c63d</tag>
+    <tag>8ce27d977fd0c64f7bc5311d0fae2e82544f4d03</tag>
   </scm>
   <developers>
     <developer>
