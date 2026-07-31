@@ -94,6 +94,23 @@
 ;; the same option on a command that finishes well inside it must be invisible
 (def in-time   (when timeout? (proc/sh ["sh" "-c" "printf 'quick\n'"] {:timeout-ms 10000})))
 
+;; THE DEADLINE MUST BOUND THE CALL, NOT JUST THE REPORT.
+;;
+;; Everything above asserts the result MAP, and the map was already identical on
+;; both hosts while the wall clock was not: `sh -c "sleep 5; echo x"` at a 300 ms
+;; deadline returned :timed-out? true in 314 ms on the JVM and 5008 ms on cljgo.
+;; Same map, 16x the time, check green — the one feature whose entire purpose is
+;; bounding time was not bounding it, and nothing here could tell.
+;;
+;; The command FORKS on purpose: a grandchild inherits the pipe and holds it
+;; open after its parent is killed, which is the case that breaks a
+;; wait-for-the-drain implementation. Reported by the toolnexus port.
+(def bounded
+  (when timeout?
+    (let [t0 (ktime/mono-ms)
+          r  (proc/sh ["sh" "-c" "sleep 5; echo x"] {:timeout-ms 300})]
+      {:elapsed (- (ktime/mono-ms) t0) :timed-out? (:timed-out? r) :exit (:exit r)})))
+
 ;; kill! as the way out of a blocked read: the child never answers, so
 ;; read-line! is parked until the kill closes its stdout under it.
 (def killed
@@ -183,6 +200,14 @@
    ["timeout-unused"   (:timed-out? in-time)      (when timeout? false)]
    ["timeout-unused-out" (:out in-time)           (when timeout? "quick\n")]
    ["timeout-unused-exit" (:exit in-time)         (when timeout? 0)]
+
+   ;; the deadline BOUNDS THE CALL: a 300 ms deadline on a 5 s command must
+   ;; return in well under a second, not report a timeout five seconds late.
+   ;; The bound is generous (1.5 s) because this is a real clock on a shared
+   ;; machine — it is there to catch 5008 ms, not to police jitter.
+   ["timeout-is-bounded"  (if timeout? (< (:elapsed bounded) 1500) true) true]
+   ["timeout-forking-flag" (:timed-out? bounded)  (when timeout? true)]
+   ["timeout-forking-exit" (:exit bounded)        nil]
 
    ;; --- kill!: the off switch, and the way out of a parked read ---
    ["kill-alive-before" (:alive-before killed)    (when killed true)]

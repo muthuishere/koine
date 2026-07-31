@@ -15,7 +15,8 @@
   ;; namespace rejected outright and forced the breaking 0.3.0 rename). The JVM
   ;; accepts excluding a name its core does not have, so one form covers both.
   (:refer-clojure :exclude [close!])
-  (:require [clojure.string :as cstr])
+  (:require [clojure.string :as cstr]
+            [koine.time :as ktime])
   #?(:cljgo (:require [cljg.io :as cio])))
 
 ;; cljgo: cljg.process (streaming spawn) and cljg.stream (the pipe handles) must
@@ -57,6 +58,27 @@
   #?(:clj   (doto (Thread. ^Runnable f) (.setDaemon true) (.start))
      :cljgo (future (f))
      :default (throw (ex-info "koine.process: no async primitive for this host; add a branch in koine/process.cljc" {}))))
+
+(defn- await-val
+  "Poll `a` until it holds a non-nil value, or `ms` elapses. Returns the value
+  or nil.
+
+  Polling rather than `(deref p ms default)`: the 3-arity blocking deref only
+  reached cljgo main on 2026-07-31 and is not in any release, so depending on it
+  would demand consumers build cljgo from source. A 5 ms poll costs nothing next
+  to a subprocess and works on every host koine supports today."
+  [a ms]
+  (let [deadline (+ (ktime/mono-ms) ms)]
+    (loop []
+      (or @a
+          (when (< (ktime/mono-ms) deadline)
+            (ktime/sleep! 5)
+            (recur))))))
+
+(defn- await-atom
+  "True once `a` holds a non-nil value; false if `ms` elapses first."
+  [a ms]
+  (some? (await-val a ms)))
 
 (defn- shq
   "Single-quote `s` for POSIX sh: wrap it, and end/escape/reopen each embedded
@@ -126,16 +148,57 @@
                  :exit nil :timed-out? true}))))
 
       :cljgo
-      (let [r (cio/exec (vec (map str command)) (cond-> {}
-                                                  in         (assoc :in in)
-                                                  dir        (assoc :dir dir)
-                                                  env        (assoc :env env)
-                                                  timeout-ms (assoc :timeout-ms timeout-ms)))]
-        ;; cljgo reports a kill as :exit -1; the JVM would say 137. Neither is
-        ;; an exit code the command chose, so koine returns nil on both.
-        (if (:timed-out? r)
-          {:out (:out r) :err (:err r) :exit nil :timed-out? true}
-          {:out (:out r) :err (:err r) :exit (:exit r) :timed-out? false}))
+      (if-not timeout-ms
+        ;; no deadline: `exec` is the exact-bytes path and stays the default
+        (let [r (cio/exec (vec (map str command)) (cond-> {}
+                                                    in  (assoc :in in)
+                                                    dir (assoc :dir dir)
+                                                    env (assoc :env env)))]
+          {:out (:out r) :err (:err r) :exit (:exit r) :timed-out? false})
+
+        ;; A DEADLINE MUST BOUND THE CALL, not just the report.
+        ;;
+        ;; `cljg.io/exec` takes :timeout-ms and does kill the process, but Go's
+        ;; exec.Cmd.Wait also waits for stdout/stderr copying to finish — and a
+        ;; GRANDCHILD inherits the pipe and holds the write end open after its
+        ;; parent is killed. So the call returned :timed-out? true, correctly,
+        ;; five seconds late. Measured 2026-07-31 with
+        ;; `sh -c "sleep 5; echo x"` at a 300 ms deadline: jvm 314 ms,
+        ;; cljgo 5008 ms. Same result map, 16x the wall clock — the map matched
+        ;; so conformance passed, and the ONE feature whose entire purpose is
+        ;; bounding time was not bounding it. Reported by the toolnexus port.
+        ;;
+        ;; So the deadline path drives the child directly and never waits on a
+        ;; drain it does not control. Filed upstream too: this is every cljgo
+        ;; caller of `exec`, not just koine's.
+        (let [p    (cljg.process/spawn (vec (map str command))
+                                       (cond-> {}
+                                         dir (assoc :dir dir)
+                                         env (assoc :env env)))
+              out-a (atom nil) err-a (atom nil) exited (atom nil)]
+          (when in (cljg.stream/write (:in p) (str in)))
+          (cljg.stream/close (:in p))
+          ;; read-all, not a line loop: `sh` returns exact bytes, and joining
+          ;; lines would invent or drop a trailing newline.
+          (run-async! (fn [] (reset! out-a (cljg.stream/read-all (:out p)))))
+          (run-async! (fn [] (reset! err-a (cljg.stream/read-all (:err p)))))
+          (run-async! (fn [] (reset! exited ((:wait p)))))
+          (let [done? (await-atom exited timeout-ms)]
+            (if done?
+              ;; finished in time: the drains are at EOF or about to be, so a
+              ;; short grace is enough and cannot become the new hang
+              {:out (or (await-val out-a 2000) "") :err (or (await-val err-a 2000) "")
+               :exit @exited :timed-out? false}
+              (do ((:kill p))
+                  ;; NO grace here, deliberately. `read-all` only returns at
+                  ;; EOF, and the grandchild still holding the pipe is exactly
+                  ;; why EOF never comes — so any wait is time spent to learn
+                  ;; nothing. Granting 2000 ms per stream turned a 300 ms
+                  ;; deadline into 4309 ms measured. Output on the timeout path
+                  ;; is best-effort, as the docstring says, and "" is the honest
+                  ;; answer when the writer is gone.
+                  {:out (or @out-a "") :err (or @err-a "")
+                   :exit nil :timed-out? true})))))
 
       :default
       (throw (ex-info "koine.process/sh: no implementation for this host; add a branch in koine/process.cljc"
