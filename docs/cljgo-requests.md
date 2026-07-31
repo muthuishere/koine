@@ -1,5 +1,34 @@
 # What koine needs from cljgo
 
+> ## Round three — OPEN, tracked as GitHub issues (2026-07-31)
+>
+> Two capability asks, both blocking something koine has accepted and cannot
+> implement. Neither is a design question, so both are filed with a suggested
+> shape rather than held for discussion.
+>
+> | issue | ask | blocks |
+> |---|---|---|
+> | [#172](https://github.com/muthuishere/cljgo/issues/172) | `cljg.io/real-path` — resolve symlinks (`filepath.EvalSymlinks`) | `koine.fs/real-path`, and therefore any symlink-cycle guard in a tree walk |
+> | [#173](https://github.com/muthuishere/cljgo/issues/173) | a NON-BLOCKING liveness check on the `spawn` handle | `koine.process/alive?` agreeing across hosts without a reaper thread |
+>
+> **#172** — `cljg.io/absolute` is `filepath.Abs`: lexical, never touches the
+> filesystem, does NOT resolve symlinks. It is not a substitute and koine will
+> not pretend it is. Without canonicalisation a tree walk cannot guard a cycle,
+> so `mkdir -p a/b && ln -s ../.. a/b/loop` walks forever. The JVM has
+> `getCanonicalPath`, so this is a one-host gap.
+>
+> **#173** — the spawn handle offers only a blocking `:wait`. This already
+> caused a real divergence in koine's PUBLIC API: a child that exited by itself
+> answered `alive? false` on the JVM and `true` on cljgo (verified, fixed in
+> koine 0.7.0). koine now runs a reaper thread per child purely to observe an
+> exit the OS already knows about, which also makes `:wait` single-owner — any
+> consumer calling it directly races the reaper. That sharp edge exists only
+> because the predicate is missing.
+>
+> Also open and filed from koine's side: **#169** (two `exe` calls ship a corrupt
+> second binary — both faces reproduced), **#170** (`cljgo version` always
+> reports `0.1.0-dev`), plus #166 / #167 / #168.
+
 > **Status (2026-07-30, evening): asks 1–5 below are DONE and shipped in koine
 > 0.1.0.** cljgo closed them with Clojure-shaped APIs — `cljg.system/getenv`,
 > `cljg.process/spawn` + `cljg.stream`, `cljg.net.http` `:as :stream`,
