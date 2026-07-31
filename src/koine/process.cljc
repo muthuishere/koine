@@ -3,7 +3,11 @@
 
   `sh` runs a command to completion; `spawn` keeps a long-lived child with piped
   stdin/stdout, which is what an MCP stdio transport needs and what `sh` cannot
-  express."
+  express.
+
+  Both have an OFF SWITCH: `sh` takes `:timeout-ms`, and a spawned child takes
+  `kill!`. A subprocess is the most dangerous thing most programs do, and one
+  that cannot be stopped is a program that cannot be stopped."
   (:require [clojure.string :as cstr])
   #?(:cljgo (:require [cljg.io :as cio])))
 
@@ -18,6 +22,22 @@
 ;; :dir and :env are applied by wrapping the command in `sh -c` on hosts that
 ;; cannot set them on the child directly, so the quoting helper below is shared
 ;; rather than written twice.
+
+(defn- run-async!
+  "Run `f` on a background thread that must NOT keep the program alive.
+
+  NOT `future` on the JVM. Clojure's future pool threads are non-daemon with a
+  60-second keep-alive, so a program that called ONE koine.process fn sat there
+  for a full minute after printing its answer — no output, no CPU, nothing to
+  see. `(shutdown-agents)` fixes it, but a library cannot demand that of a
+  consumer, and a library must never decide when the host program may exit.
+  Measured 2026-07-31: 60.5s for a `sh [\"true\"]`.
+
+  On cljgo the equivalent is a goroutine, which never holds up exit."
+  [f]
+  #?(:clj   (doto (Thread. ^Runnable f) (.setDaemon true) (.start))
+     :cljgo (future (f))
+     :default (throw (ex-info "koine.process: no async primitive for this host; add a branch in koine/process.cljc" {}))))
 
 (defn- shq
   "Single-quote `s` for POSIX sh: wrap it, and end/escape/reopen each embedded
@@ -37,11 +57,24 @@
       ["sh" "-c" (cstr/join " " parts)])))
 
 (defn sh
-  "Run `command` (a vector) to completion. Returns {:out :err :exit}.
-  Never throws on a non-zero exit — that is a normal result.
-  opts: :in (string on stdin) :dir :env"
+  "Run `command` (a vector) to completion. Returns
+  {:out :err :exit :timed-out?}. Never throws on a non-zero exit — that is a
+  normal result.
+
+  opts: :in (string on stdin) :dir :env :timeout-ms
+
+  `:timeout-ms` force-kills the command after n milliseconds. A killed command
+  reports `:timed-out? true` and `:exit nil` — NOT a number. There is no exit
+  code when a process is killed: the JVM would report 137 and Go -1, both of
+  them inventions, and a caller doing `(zero? (:exit r))` must not silently read
+  a kill as a clean run. `:timed-out?` is always present, so it is safe to test
+  on every result. `:out` / `:err` carry whatever the command managed to write
+  before it died, which is best-effort and NOT guaranteed to match across hosts.
+
+  Without `:timeout-ms` the command runs to completion, however long that is.
+  Asked for by the toolnexus port: an agent's `bash` tool needs an off switch."
   ([command] (sh command {}))
-  ([command {:keys [in dir env] :as opts}]
+  ([command {:keys [in dir env timeout-ms]}]
    #?(:clj
       (let [pb (ProcessBuilder. ^java.util.List (vec (map str command)))
             _  (when dir (.directory pb (java.io.File. ^String dir)))
@@ -51,15 +84,39 @@
         (when in
           (with-open [os (.getOutputStream p)]
             (.write os (.getBytes ^String in "UTF-8"))))
-        (let [out (slurp (.getInputStream p))
-              err (slurp (.getErrorStream p))]
-          {:out out :err err :exit (.waitFor p)}))
+        ;; Both pipes are drained CONCURRENTLY with the wait. Reading them in
+        ;; sequence deadlocks the moment a command fills one buffer while we
+        ;; block on the other — the same pipe-buffer trap `spawn` documents for
+        ;; stderr, and with a timeout it would also make the deadline unreachable.
+        (let [out-p (promise)
+              err-p (promise)
+              _     (run-async! (fn [] (deliver out-p (slurp (.getInputStream p)))))
+              _     (run-async! (fn [] (deliver err-p (slurp (.getErrorStream p)))))
+              done? (if timeout-ms
+                      (.waitFor p (long timeout-ms) java.util.concurrent.TimeUnit/MILLISECONDS)
+                      (do (.waitFor p) true))]
+          (if done?
+            {:out @out-p :err @err-p :exit (.exitValue p) :timed-out? false}
+            (do (.destroyForcibly p)
+                (.waitFor p)
+                ;; the readers end at EOF once the child is gone, but a
+                ;; DEADLINE is still required: a grandchild holding the pipe
+                ;; open outlives its parent, and this must not become the
+                ;; second thing that hangs forever.
+                {:out (deref out-p 2000 "") :err (deref err-p 2000 "")
+                 :exit nil :timed-out? true}))))
+
       :cljgo
       (let [r (cio/exec (vec (map str command)) (cond-> {}
-                                                  in  (assoc :in in)
-                                                  dir (assoc :dir dir)
-                                                  env (assoc :env env)))]
-        {:out (:out r) :err (:err r) :exit (:exit r)})
+                                                  in         (assoc :in in)
+                                                  dir        (assoc :dir dir)
+                                                  env        (assoc :env env)
+                                                  timeout-ms (assoc :timeout-ms timeout-ms)))]
+        ;; cljgo reports a kill as :exit -1; the JVM would say 137. Neither is
+        ;; an exit code the command chose, so koine returns nil on both.
+        (if (:timed-out? r)
+          {:out (:out r) :err (:err r) :exit nil :timed-out? true}
+          {:out (:out r) :err (:err r) :exit (:exit r) :timed-out? false}))
 
       :default
       (throw (ex-info "koine.process/sh: no implementation for this host; add a branch in koine/process.cljc"
@@ -93,8 +150,27 @@
   [child] ((:alive? child)))
 
 (defn close!
-  "Close the child's stdin, wait for it to exit, and return the exit code."
+  "Close the child's stdin, wait for it to exit, and return the exit code.
+
+  This is the POLITE shutdown and it WAITS: a child that ignores its stdin
+  closing will hang here forever. When you need a guarantee rather than a
+  request, use `kill!`."
   [child] ((:close! child)))
+
+(defn kill!
+  "Force-terminate the child. Returns nil — always, on both hosts.
+
+  Returns nil rather than an exit code on purpose: a killed process did not
+  choose one. The JVM would report 137 and Go -1, and koine does not invent
+  agreement between two host-specific numbers. Ask `alive?` if you need to know
+  it is gone.
+
+  This is also the way OUT of a blocked `read-line!`. A reader parked on a hung
+  peer cannot be interrupted portably, but killing the child closes its stdout,
+  so the parked `read-line!` hits EOF and returns nil. One mechanism ends a
+  runaway command and frees a stuck transport — asked for by the toolnexus port
+  as two separate things, 2026-07-31."
+  [child] ((:kill! child)))
 
 ;; ------------------------------------------------------------------ stderr
 ;;
@@ -128,11 +204,12 @@
   `sink` atom's ring. Returns nil immediately. Never throws into the caller: the
   child dying mid-read is the normal way this ends."
   [sink read-line-fn]
-  (future
-    (loop []
-      (when-let [line (read-line-fn)]
-        (swap! sink ring-conj line)
-        (recur))))
+  (run-async!
+   (fn []
+     (loop []
+       (when-let [line (read-line-fn)]
+         (swap! sink ring-conj line)
+         (recur)))))
   nil)
 
 (defn stderr-lines
@@ -173,6 +250,7 @@
          :read-line!   (fn [] (.readLine in))
          :alive?       (fn [] (.isAlive p))
          :stderr-lines (fn [] @sink)
+         :kill!        (fn [] (.destroyForcibly p) (.waitFor p) nil)
          :close!       (fn [] (.close out) (.waitFor p))})
 
       :cljgo
@@ -191,6 +269,9 @@
          :read-line!   (fn [] (cljg.stream/read-line (:out p)))
          :alive?       (fn [] (nil? @exited))
          :stderr-lines (fn [] @sink)
+         :kill!        (fn [] ((:kill p))
+                         (or @exited (reset! exited ((:wait p))))
+                         nil)
          :close!       (fn [] (cljg.stream/close (:in p))
                          (or @exited (reset! exited ((:wait p)))))})
 

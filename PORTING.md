@@ -76,6 +76,15 @@ pay a host-specific require cost only where it applies.
 
 ## Known gaps (throw a named error; do not fake these)
 
+- **`real-path` / canonicalisation.** Neither host is missing it, but koine has
+  no seam yet, so a directory walk cannot guard against a symlink CYCLE and
+  will loop forever on one. cljgo's `cljg.io/absolute` is `filepath.Abs`, which
+  cleans a path WITHOUT resolving symlinks — it is not the same function and
+  must not be used as if it were. The JVM has `.getCanonicalPath`; Go has
+  `filepath.EvalSymlinks`. Open, asked for by the toolnexus port.
+- **A YAML parser.** Not koine's job by charter (it touches no host), but the
+  no-dependency rule means a consumer cannot get one either. Unresolved — see
+  the discussion in INPROGRESS.md.
 - **Pattern-based date formatting.** Go layouts (`2006-01-02`) and java.time
   patterns (`yyyy-MM-dd`) are different languages, and koine will not fake a
   translation. `koine.time/iso-str` / `parse-iso` cover the wire format, which
@@ -94,6 +103,14 @@ Two independent ways a cljgo program reports success while doing nothing:
   a top-level `println` and a `-main` printed only the top-level line, exit 0.)
   An interpreted entry point needs the call at the top level; `cljgo build`
   binaries DO invoke `-main`, so the two modes disagree.
+- **A `test/` tree beside `src/` IS visible to `cljgo test`.** Verified
+  2026-07-31 on `examples/cljgo-app`, whose suite lives in `test/demo/` and is
+  collected as 9 tests / 34 assertions. What is NOT reachable is a *require* of
+  a test namespace from an entry file under `src/` — `cljgo run` and
+  `cljgo build` resolve namespaces relative to the entry file's own root, so a
+  sibling tree is off the path. That is the same split the JVM has between the
+  runtime and test classpaths, and it is not a reason to move suites under
+  `src/`. koine moved its own back to `test/` for exactly this reason.
 - **`cljgo test` skipped `.cljc` entirely** until the fix landed, printing
   "Ran 0 tests containing 0 assertions. 0 failures" and exiting 0 — a green
   light for a suite that never ran. Fixed and **released in cljgo v0.8.2**; on

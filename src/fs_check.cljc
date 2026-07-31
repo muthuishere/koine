@@ -6,19 +6,19 @@
 ;; and find-files are the seam that hides it, and the property under test is that
 ;; both hosts return the SAME sorted set of paths for the same tree.
 ;;
-;; The tree is built with koine.fs itself under a fixed directory below /tmp —
-;; no temp-dir shim is assumed, and the directory is created with mkdir -p via
-;; koine.process (portable), then removed at the end.
+;; The tree is built with koine.fs itself, under a directory koine.fs created.
+;; It used to shell out to `mkdir -p` and `rm -rf` — portable across HOSTS but
+;; not across OPERATING SYSTEMS, and a process spawn for a syscall. That is the
+;; workaround koine now removes, so the check must not keep it either.
 (require 'koine.fs 'koine.process 'koine.host 'clojure.string)
 (alias 'host 'koine.host)
 (alias 'fs 'koine.fs)
 (alias 'proc 'koine.process)
 (alias 'cstr 'clojure.string)
 
-(def root "/tmp/koine-fs-check")
+(def root (str (fs/temp-dir! "koine-fs-check") "/tree"))
 
-(proc/sh ["rm" "-rf" root])
-(proc/sh ["mkdir" "-p" (str root "/sub/deep")])
+(fs/mkdirs! (str root "/sub/deep"))
 
 (fs/write-file (str root "/a.txt")           "alpha")
 (fs/write-file (str root "/b.skill.md")      "bee")
@@ -26,6 +26,27 @@
 (fs/write-file (str root "/sub/deep/d.skill.md") "dee ☃")
 
 (def tree (set (fs/list-tree root)))
+
+;; --- mutation fixtures, built BEFORE the case table so the table stays data ---
+(def mk (fs/mkdirs! (str root "/x/y/z")))
+;; captured HERE, not in the case table: the tree is deleted below, so an
+;; assertion deferred to the table would be reading the state after the delete.
+(def mkdirs-deep? (fs/directory? (str root "/x/y/z")))
+(def mkdirs-again? (do (fs/mkdirs! (str root "/x/y/z"))
+                       (fs/directory? (str root "/x/y/z"))))
+(fs/write-file (str root "/x/y/z/buried.txt") "deep")
+
+(fs/write-file (str root "/gone.txt") "bye")
+(def del-ret (fs/delete! (str root "/gone.txt")))
+;; deleting what is already gone must NOT throw — that is the contract, and it
+;; is the difference between `rm -f` and `rm`.
+(def deleted-twice (try (fs/delete! (str root "/gone.txt")) :ok (catch Throwable _ :threw)))
+
+(fs/delete-tree! (str root "/x"))
+(def tree-twice (try (fs/delete-tree! (str root "/x")) :ok (catch Throwable _ :threw)))
+
+(def tmp-a (fs/temp-dir! "koine-check"))
+(def tmp-b (fs/temp-dir! "koine-check"))
 (def txts (fs/find-files root ".txt"))
 (def skills (fs/find-files root ".skill.md"))
 
@@ -57,10 +78,37 @@
                                  (str root "/sub/deep/d.skill.md")]]
    ["find-sorted"   (= skills (vec (sort skills)))              true]
    ["find-none"     (fs/find-files root ".nope")                []]
-   ["find-vector"   (vector? txts)                              true]])
+   ["find-vector"   (vector? txts)                              true]
+
+   ;; ------------------------------------------------------------- mutation
+   ;; mkdirs! is mkdir -p: every missing parent, and idempotent.
+   ["mkdirs-deep"   mkdirs-deep?                                true]
+   ["mkdirs-returns" (string? mk)                               true]
+   ["mkdirs-again"  mkdirs-again?                               true]   ; a second call is not an error
+
+   ;; delete! is a statement about the END STATE — absent afterwards, and
+   ;; deleting something already gone is fine. Both hosts agree because koine
+   ;; says so, not because they happened to.
+   ["delete-file"   (fs/exists? (str root "/gone.txt"))         false]
+   ["delete-absent-ok" deleted-twice                            :ok]
+   ["delete-returns-nil" del-ret                                nil]
+
+   ;; delete-tree! removes a NON-EMPTY tree; delete! alone cannot.
+   ["tree-gone"     (fs/exists? (str root "/x"))                false]
+   ["tree-siblings-survive" (fs/exists? (str root "/a.txt"))    true]
+   ["tree-absent-ok" tree-twice                                 :ok]
+
+   ;; temp-dir! hands back a FRESH directory each call — a caller that assumes
+   ;; otherwise silently shares state between two unrelated pieces of work.
+   ["temp-exists"   (fs/directory? tmp-a)                       true]
+   ["temp-distinct" (= tmp-a tmp-b)                             false]
+   ["temp-empty"    (count (fs/list-tree tmp-a))                1]])   ; the dir itself
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))
   (println (str (- (count cases) (count fails)) "/" (count cases) " pass")))
 
-(proc/sh ["rm" "-rf" root])
+;; cleanup through the seam itself — no shell, no OS assumption
+(fs/delete-tree! root)
+(fs/delete-tree! tmp-a)
+(fs/delete-tree! tmp-b)

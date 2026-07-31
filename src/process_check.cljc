@@ -75,6 +75,43 @@
         {:line line :err-count (count errs) :first (first errs) :last (last errs)
          :errs-type errs}))))
 
+;; ------------------------------------------------------- timeout and kill
+;;
+;; An agent's `bash` tool is the most dangerous thing it has, and until now it
+;; had no off switch: `sh` ran to completion and `close!` politely WAITED on a
+;; child that might never leave. Asked for by the toolnexus port, 2026-07-31.
+;;
+;; The two asks are ONE mechanism. Killing a child closes its stdout, so a
+;; `read-line!` parked on a hung peer hits EOF and returns nil — which is the
+;; portable answer to "interrupt a blocked read", a thing neither host offers
+;; directly.
+
+(def timeout? (host/supports? :process/timeout))
+
+;; sleeps 30s; the deadline is 300ms. If the timeout does not work this check
+;; does not fail, it HANGS for 30 seconds — same shape as the deadlock case.
+(def timed-out (when timeout? (proc/sh ["sh" "-c" "sleep 30"] {:timeout-ms 300})))
+;; the same option on a command that finishes well inside it must be invisible
+(def in-time   (when timeout? (proc/sh ["sh" "-c" "printf 'quick\n'"] {:timeout-ms 10000})))
+
+;; kill! as the way out of a blocked read: the child never answers, so
+;; read-line! is parked until the kill closes its stdout under it.
+(def killed
+  (when (and spawn? (host/supports? :process/kill))
+    (let [c (proc/spawn ["sh" "-c" "sleep 30"])
+          ;; park a reader on a child that will never write
+          r (future (proc/read-line! c))]
+      (ktime/sleep! 100)
+      (let [alive-before (proc/alive? c)
+            ret          (proc/kill! c)
+            ;; the parked reader must come back — EOF, not a value
+            line         (deref r 5000 :still-blocked)]
+        {:alive-before alive-before :ret ret :line line
+         :alive-after (loop [n 0]
+                        (if (or (> n 50) (not (proc/alive? c)))
+                          (proc/alive? c)
+                          (do (ktime/sleep! 20) (recur (inc n)))))}))))
+
 (def cases
   [["sh-out"        (:out echoed)                 "hi\n"]
    ["sh-exit-0"     (:exit echoed)                0]
@@ -105,7 +142,27 @@
    ["stderr-is-a-vector" (vector? (:errs-type noisy))  (boolean spawn?)]
 
    ["eof-line"      (:r1 at-eof)                  (when spawn? "only")]
-   ["eof-nil"       (:r2 at-eof)                  nil]])
+   ["eof-nil"       (:r2 at-eof)                  nil]
+
+   ;; --- timeout: the result is DATA, and it is the SAME data on both hosts ---
+   ["timeout-flag"  (:timed-out? timed-out)       (when timeout? true)]
+   ;; nil, not 137 (JVM) and not -1 (cljgo). A killed process chose no exit
+   ;; code, and koine will not invent agreement between two host inventions.
+   ["timeout-exit-nil" (:exit timed-out)          nil]
+   ["timeout-no-throw" (map? timed-out)           (boolean timeout?)]
+   ;; the flag is ALWAYS present, so a caller can test it unconditionally
+   ["normal-not-timed-out" (:timed-out? echoed)   false]
+   ["timeout-unused"   (:timed-out? in-time)      (when timeout? false)]
+   ["timeout-unused-out" (:out in-time)           (when timeout? "quick\n")]
+   ["timeout-unused-exit" (:exit in-time)         (when timeout? 0)]
+
+   ;; --- kill!: the off switch, and the way out of a parked read ---
+   ["kill-alive-before" (:alive-before killed)    (when killed true)]
+   ["kill-returns-nil"  (:ret killed)             nil]
+   ["kill-then-dead"    (:alive-after killed)     (when killed false)]
+   ;; the point of the whole exercise: a reader blocked on a hung peer comes
+   ;; back at EOF instead of hanging the caller forever.
+   ["kill-frees-reader" (:line killed)            nil]])
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))
