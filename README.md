@@ -174,17 +174,17 @@ it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.4.1"}
+net.clojars.muthuishere/koine {:mvn/version "0.4.2"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.1"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.2"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
-**The API is unstable at `0.4.1`.** `koine.process`, `koine.route` and
+**The API is unstable at `0.4.2`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env`,
 `koine.time`, `koine.fs` and `koine.codec` are settled.
 

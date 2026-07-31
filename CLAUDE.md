@@ -2,6 +2,16 @@
 
 Guidance for Claude Code (claude.ai/code) working in this repository.
 
+## workwire
+
+name: koine
+owns: the koine library — one `.cljc` source reaching the host (HTTP, subprocess, fs, env)
+  across four Clojure runtimes (JVM, cljgo, babashka, ClojureScript); host-parity semantics;
+  what each runtime tier can and cannot do
+will-not-speak-for: consumers of koine, their build setups, or anything outside this repo
+depends-on: the four host runtimes it targets
+groups: @all
+
 ## What this project is
 
 **koine** — one small library that lets a single `.cljc` source file reach the

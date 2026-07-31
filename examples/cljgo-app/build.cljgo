@@ -10,7 +10,7 @@
 ;; "10 namespace(s) with no Java interop", which is koine's whole claim being
 ;; machine-checked at dependency time.
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.1"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.2"})
   (let [app (exe b {:name "demo" :main "src/demo/app.cljc"})]
     (install b app)
     (run b app)))
