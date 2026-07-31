@@ -165,17 +165,33 @@ it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.6.0"}
+net.clojars.muthuishere/koine {:mvn/version "0.7.0"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.6.0"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.7.0"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
-**The API is unstable at `0.6.0`.** `koine.process`, `koine.route` and
+> ### ⚠️ Do not use 0.4.2 or 0.5.0
+>
+> **They hang the JVM for 60 seconds after any `koine.process/spawn`.** The
+> program does its work correctly and prints the right answer, then simply does
+> not exit — no output, no CPU, nothing to point at. The stderr drain ran on
+> `future`, and Clojure's future-pool threads are non-daemon with a 60-second
+> keep-alive.
+>
+> **Upgrade to `0.7.0`.** Measured twice, independently: 61.07s → 0.56s here,
+> and 1:02.00 → 2.1s on a consumer's MCP suite. cljgo was never affected.
+>
+> **Bytes, ordering, exit codes and cross-host parity are unaffected in all
+> three versions** — the hang is entirely after the work completes. So nothing
+> you *computed* with 0.4.2 or 0.5.0 is wrong; only anything you *timed* on the
+> JVM is.
+
+**The API is unstable at `0.7.0`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env`,
 `koine.time`, `koine.fs` and `koine.codec` are settled.
 

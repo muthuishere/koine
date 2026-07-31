@@ -112,6 +112,34 @@
                           (proc/alive? c)
                           (do (ktime/sleep! 20) (recur (inc n)))))}))))
 
+;; ---------------------------------------------- a child that exits BY ITSELF
+;;
+;; The case this file was missing, and the gap is instructive: every `alive?`
+;; assertion here used to sit either mid-conversation (child up, both hosts
+;; agree) or side-by-side with `kill!` (which is what SETS the exit on cljgo, so
+;; both hosts agree again). Every tested case was one where the two
+;; implementations coincide, so the check was green while `alive?` genuinely
+;; diverged — jvm false, cljgo true — for a peer that exited on its own.
+;;
+;; That is the shape to watch for: a check written around the MECHANISM instead
+;; of the QUESTION. The question is "is the child still running", and nobody had
+;; ever asked it of a child nobody had stopped. Reported by the toolnexus port.
+(def self-exit
+  (when spawn?
+    (let [c (proc/spawn ["sh" "-c" "printf 'bye\n'; exit 0"])
+          line (proc/read-line! c)
+          eof  (proc/read-line! c)]
+      ;; the child is gone; poll to a deadline, since reaping is asynchronous on
+      ;; both hosts and asserting instantly would be racing, not testing
+      {:line line
+       :eof  eof
+       :alive (loop [n 0]
+                (if (or (> n 50) (not (proc/alive? c)))
+                  (proc/alive? c)
+                  (do (ktime/sleep! 20) (recur (inc n)))))
+       ;; and close! must still hand back the code the child chose
+       :exit (proc/close! c)})))
+
 (def cases
   [["sh-out"        (:out echoed)                 "hi\n"]
    ["sh-exit-0"     (:exit echoed)                0]
@@ -162,7 +190,15 @@
    ["kill-then-dead"    (:alive-after killed)     (when killed false)]
    ;; the point of the whole exercise: a reader blocked on a hung peer comes
    ;; back at EOF instead of hanging the caller forever.
-   ["kill-frees-reader" (:line killed)            nil]])
+   ["kill-frees-reader" (:line killed)            nil]
+
+   ;; --- a child nobody stopped: BOTH hosts must say it is gone ---
+   ["self-exit-line"  (:line self-exit)           (when spawn? "bye")]
+   ["self-exit-eof"   (:eof self-exit)            nil]
+   ;; the divergence itself: false on the JVM, true on cljgo, until the reaper
+   ["self-exit-dead"  (:alive self-exit)          (when spawn? false)]
+   ;; reaping must not eat the exit code close! is supposed to return
+   ["self-exit-code"  (:exit self-exit)           (when spawn? 0)]])
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))

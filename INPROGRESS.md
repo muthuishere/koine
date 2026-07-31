@@ -9,7 +9,7 @@ Read `README.md` for what koine *is*.
 
 ## TL;DR
 
-**Published and consumable: `net.clojars.muthuishere/koine 0.6.0`.** Two hosts,
+**Published and consumable: `net.clojars.muthuishere/koine 0.7.0`.** Two hosts,
 Clojure (JVM) and cljgo, both supported outright. Every seam is implemented on
 both, every conformance check is green on both, and both example projects
 consume the released artifact rather than the working tree.
@@ -23,6 +23,11 @@ both 0.4.2 and 0.5.0 (below). New: `sh` takes `:timeout-ms`, a spawned child
 takes `kill!`, and `koine.fs` grows `mkdirs!` / `delete!` / `delete-tree!` /
 `temp-dir!` so a consumer stops shelling out to `mkdir -p` and `rm -rf`.
 
+`0.7.0` fixes a **cross-host divergence in koine's own API** — `alive?` answered
+differently on the two hosts for a child that exited by itself — makes
+`run-async!` public, and adds `shadow_check`. All three came from the toolnexus
+port reporting them; see below.
+
 ---
 
 ## Where it stands
@@ -30,12 +35,12 @@ takes `kill!`, and `koine.fs` grows `mkdirs!` / `delete!` / `delete-tree!` /
 | gate | result |
 |---|---|
 | `clojure -M:test` | 109 tests, 372 assertions, 0 failures |
-| `./run-conformance.sh` | 12 checks, green on JVM **and** cljgo |
+| `./run-conformance.sh` | 13 checks, green on JVM **and** cljgo |
 | `./examples/run-both.sh` | both consumer projects agree, on the Clojars artifact |
 
 Conformance per check, both hosts: conformance 9/9 · bytes 17/17 · codec 11/11 ·
-env 12/12 · fs 31/31 · http 9/9 · mcp 5/5 · process 31/31 · route 43/43 ·
-server 10/10 · stream 34/34 · time 28/28.
+env 12/12 · fs 31/31 · http 9/9 · mcp 5/5 · process 35/35 · route 43/43 ·
+server 10/10 · shadow 1/1 · stream 34/34 · time 28/28.
 
 `clojure -M:test` only proves the JVM. A change is not verified until
 `run-conformance.sh` is green on both.
@@ -53,7 +58,7 @@ cross-host conformance check.
 | `koine.time` | `time_check` 28/28 |
 | `koine.server` | `server_check` 10/10 |
 | `koine.env` | `env_check` 12/12 |
-| `koine.process` | `process_check` 31/31 + `mcp_check` 5/5 |
+| `koine.process` | `process_check` 35/35 + `mcp_check` 5/5 |
 | `koine.http` | `http_check` 9/9 |
 | `koine.fs` | `fs_check` 31/31 + `bytes_check` 17/17 |
 | `koine.codec` | `codec_check` 11/11 |
@@ -79,10 +84,34 @@ Fixed in 0.6.0 — background readers now run on an explicitly daemon thread
 `(shutdown-agents)` is not something a library may demand of its consumer. The
 same trap would have hit `sh` when it gained concurrent pipe readers.
 
+## `alive?` meant two different things (fixed in 0.7.0)
+
+**A child that exited on its own answered `alive? false` on the JVM and `true`
+on cljgo.** One public function, two answers, inside the library whose entire
+job is preventing that. `exited` was set only inside `close!`/`kill!`, so a peer
+nobody had stopped was never marked dead. cljgo now runs a reaper that owns the
+single permitted call to `:wait` and marks the child the moment it exits.
+
+**`process_check` was structurally blind to it.** Every `alive?` case sat either
+mid-conversation (child up, both hosts agree) or beside `kill!` (which is what
+*sets* the exit on cljgo, so both agree again). Every tested case was one where
+the two implementations coincide. The check was written around the MECHANISM
+instead of the QUESTION — nobody had ever asked "is it running?" of a child
+nobody had stopped. That is the failure mode to watch for in every other check
+here. Reported by the toolnexus port; koine's green gate proved nothing.
+
+## `run-async!` is public now
+
+Keeping it private fixed the 60-second hang for koine and handed it straight to
+consumers: a caller writing its own reader loop reaches for `future`, gets the
+non-daemon pool, and cannot call `(shutdown-agents)` from library code either.
+Measured by toolnexus on their MCP suite — 64.9s with `future`, 4.3s with the
+pool shut down; cljgo 4.5s either way. Same defect, third independent path.
+
 ## Still open
 
-- **`fs/real-path`** — no canonicalisation seam, so a directory walk cannot
-  guard a symlink CYCLE. Note `cljg.io/absolute` is `filepath.Abs`: it does not
+- **`fs/real-path`** — accepted, not built: no canonicalisation seam, so a
+  directory walk cannot guard a symlink CYCLE. Note `cljg.io/absolute` is `filepath.Abs`: it does not
   resolve symlinks and is not a substitute.
 - **A YAML seam.** toolnexus needs one for SKILL.md frontmatter and cannot take
   a dependency. koine's position: YAML is not a spec you can pin the way JSON
@@ -114,9 +143,15 @@ same trap would have hit `sh` when it gained concurrent pipe readers.
 ## Open cljgo issues koine filed
 
 `#166` (`run resolve -update` does not exist — CLI design call), `#167`
-(`load-file` resolves but is unbound), `#168`. Two other defects found by
-consuming koine were fixed upstream with tests rather than filed: the `.cljc`
-test-walk skip (released in v0.8.2) and the byte-boundary emit truncation.
+(`load-file` resolves but is unbound), `#168` (fresh clone + `cljgo run` gives a
+bare require failure instead of "no lock"), **`#169`** (two `exe` calls in one
+build.cljgo ship a corrupt second binary — both faces reproduced),
+**`#170`** (`cljgo version` always reports `0.1.0-dev`), `#171` (cljgo's
+`clojure.core` has vars the JVM's lacks — `ok`, `err`).
+
+Fixed upstream with tests rather than filed: the `.cljc` test-walk skip
+(released in v0.8.2), the byte-boundary emit truncation, `bri` serve printing to
+stdout, and `deref` missing its 3-arity.
 
 ## Release mechanics
 

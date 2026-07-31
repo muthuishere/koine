@@ -8,6 +8,13 @@
   Both have an OFF SWITCH: `sh` takes `:timeout-ms`, and a spawned child takes
   `kill!`. A subprocess is the most dangerous thing most programs do, and one
   that cannot be stopped is a program that cannot be stopped."
+  ;; `close!` is in cljgo's clojure.core and NOT in the JVM's. Excluding it makes
+  ;; the shadow DELIBERATE and declared rather than accidental — which is the
+  ;; whole difference between this and the two that bit koine before
+  ;; (`koine.json/err` warned on every cljgo load; `koine.route/proxy` had its
+  ;; namespace rejected outright and forced the breaking 0.3.0 rename). The JVM
+  ;; accepts excluding a name its core does not have, so one form covers both.
+  (:refer-clojure :exclude [close!])
   (:require [clojure.string :as cstr])
   #?(:cljgo (:require [cljg.io :as cio])))
 
@@ -23,7 +30,7 @@
 ;; cannot set them on the child directly, so the quoting helper below is shared
 ;; rather than written twice.
 
-(defn- run-async!
+(defn run-async!
   "Run `f` on a background thread that must NOT keep the program alive.
 
   NOT `future` on the JVM. Clojure's future pool threads are non-daemon with a
@@ -33,7 +40,19 @@
   consumer, and a library must never decide when the host program may exit.
   Measured 2026-07-31: 60.5s for a `sh [\"true\"]`.
 
-  On cljgo the equivalent is a goroutine, which never holds up exit."
+  On cljgo the equivalent is a goroutine, which never holds up exit.
+
+  PUBLIC, and that is the point. This was private while koine used it to fix its
+  own 60-second hang, which quietly handed the same hang to every consumer: a
+  caller running its own reader loop over `read-line!` reaches for `future`,
+  gets the non-daemon pool, and cannot call `(shutdown-agents)` from library
+  code either. Measured by the toolnexus port on their MCP suite — 64.9s with
+  `future`, 4.3s with the pool shut down, cljgo 4.5s either way. Fixing that
+  only inside koine was fixing it for koine, not for anyone using koine.
+
+  Returns immediately. `f` takes no arguments; its value is discarded, so
+  communicate through an atom or a promise. Nothing waits for it — if you need
+  to know it finished, deliver a promise at the end of `f`."
   [f]
   #?(:clj   (doto (Thread. ^Runnable f) (.setDaemon true) (.start))
      :cljgo (future (f))
@@ -263,17 +282,31 @@
                                          dir (assoc :dir dir)
                                          env (assoc :env env)))
             exited (atom nil)
+            exit-p (promise)
             sink   (atom [])]
         (drain-into! sink (fn [] (cljg.stream/read-line (:err p))))
+        ;; A REAPER, and it is not an optimisation — it is what makes `alive?`
+        ;; mean the same thing on both hosts.
+        ;;
+        ;; `exited` used to be set only inside `close!`/`kill!`, so a child that
+        ;; exited BY ITSELF still answered `alive? true` here while the JVM
+        ;; answered false. One public fn, two answers, in the library whose
+        ;; whole job is preventing exactly that. Reported by the toolnexus port
+        ;; and verified 2026-07-31: `sh -c 'printf bye; exit 0'` read to EOF,
+        ;; then jvm=false, cljgo=true.
+        ;;
+        ;; This thread is the ONLY caller of (:wait p) — Go's cmd.Wait must not
+        ;; be called twice — so close!/kill! read the promise instead of waiting
+        ;; themselves.
+        (run-async! (fn [] (let [code ((:wait p))]
+                             (reset! exited code)
+                             (deliver exit-p code))))
         {:send-line!   (fn [s] (cljg.stream/write-line (:in p) (str s)) nil)
          :read-line!   (fn [] (cljg.stream/read-line (:out p)))
          :alive?       (fn [] (nil? @exited))
          :stderr-lines (fn [] @sink)
-         :kill!        (fn [] ((:kill p))
-                         (or @exited (reset! exited ((:wait p))))
-                         nil)
-         :close!       (fn [] (cljg.stream/close (:in p))
-                         (or @exited (reset! exited ((:wait p)))))})
+         :kill!        (fn [] ((:kill p)) @exit-p nil)
+         :close!       (fn [] (cljg.stream/close (:in p)) @exit-p)})
 
 
       :default

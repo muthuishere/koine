@@ -55,6 +55,23 @@ green on both.
 12. **A capability probe must not be a `try`/`catch`** — the catch symbol is not
     the same on both hosts, so the probe becomes host-specific code. Ask
     `koine.host/supports?` instead.
+13. **`future` on the JVM keeps the program alive for 60 seconds.** The pool
+    threads are non-daemon with a 60s keep-alive, so a library that starts one
+    decides when its consumer's program may exit. Use
+    `koine.process/run-async!`, which is a daemon thread on the JVM and a
+    goroutine on cljgo. This shipped in koine 0.4.2 and 0.5.0 before it was
+    caught.
+14. **`locking` is a JVM special form** and executors are not portable, so
+    `compare-and-set!` spin is the portable mutual exclusion. (From the
+    toolnexus port, which needed atomic writes across concurrent senders.)
+15. **cljgo's `clojure.core` has vars the JVM's does not** — `ok`, `err` among
+    them — so a name that is free on the JVM can shadow there and be rejected
+    or warn. koine has two scars from this: `koine.json/err` warned on every
+    cljgo load (renamed `parse-err`), and `koine.route/proxy` had its whole
+    namespace rejected, forcing the breaking 0.3.0 rename to `forward`. The
+    cheap guard is a pre-commit scan of every public AND private name against
+    `(resolve 'clojure.core/<name>)` on BOTH hosts. Filed upstream as cljgo
+    #171.
 
 ## Verified core parity
 
