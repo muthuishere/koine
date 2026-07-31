@@ -85,9 +85,8 @@
    ["sh-dir"        (boolean (re-find #"tmp" (:out in-dir))) true]
    ["sh-env"        (:out with-env)               "envd"]
 
-   ;; spawn is not on every host — let-go has no route to a live child's pipes.
-   ;; `koine.host/supports?` answers that portably, so the check SKIPS rather
-   ;; than failing or (worse) needing a host-specific catch to probe with.
+   ;; `koine.host/supports?` gates this rather than a host-specific catch, so a
+   ;; host without a live-child route skips instead of failing.
    ["spawn-rt1"     (:r1 convo)                   (when spawn? "one")]
    ["spawn-rt2"     (:r2 convo)                   (when spawn? "two")]      ; the buffering tell
    ["spawn-utf8"    (:r3 convo)                   (when spawn? "café ☃")]
@@ -97,9 +96,9 @@
 
    ;; the deadlock test: the child answers only AFTER 4000 stderr lines
    ["stderr-no-deadlock" (:line noisy)          (when spawn? "answered:ping")]
-   ;; Capture is a SEPARATE capability from the drain: Glojure drains (so the
-   ;; deadlock above is fixed there) but the lines do not cross the goroutine
-   ;; boundary into the atom, so stderr-lines is empty. Asked, not assumed.
+   ;; Capture is a SEPARATE capability from the drain: a host can consume stderr
+   ;; (so the deadlock above cannot happen) and still not surface the lines.
+   ;; Asked, not assumed.
    ["stderr-captured"    (boolean (seq (:first noisy)))
                          (boolean (and spawn? (host/supports? :process/stderr-capture)))]
    ["stderr-bounded"     (if spawn? (<= (:err-count noisy) 200) true) true]

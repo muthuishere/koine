@@ -9,8 +9,9 @@
   construction.
 
   DECODE is also pure portable Clojure. Delegating it looked free (parsing has
-  no formatting choices to disagree about) but with four hosts it would mean
-  four parsers to keep in agreement, two of which are not even reachable."
+  no formatting choices to disagree about) until you count the cost: one parser
+  per host to keep in agreement, and cljgo's is a private builtin that is not
+  reachable at all."
   (:refer-clojure :exclude [read])
   (:require [clojure.string :as str]))
 
@@ -74,11 +75,10 @@
 ;; Also pure clojure.core — NOT delegated to a host parser.
 ;;
 ;; Delegation was the original plan (parsing has no formatting choices to
-;; disagree about, so it looked free). With four hosts it stops being free:
-;; it would mean four different parsers to keep in agreement, and two of them
-;; are not even reachable — cljgo's decoder is a private builtin, and Glojure
-;; does not ship `encoding/json` in its default package set. One core-only
-;; parser is both smaller and more portable.
+;; disagree about, so it looked free). With both hosts it stops being free:
+;; it would mean one parser per host to keep in agreement, and cljgo's decoder
+;; is a private builtin that is not reachable at all. One core-only parser is
+;; both smaller and more portable.
 ;;
 ;; State is [value index] over a string. No reader, no stream, no mutation.
 
@@ -159,10 +159,9 @@
       [(assoc acc (key-fn k) v) i'])))
 
 ;; key-fn is threaded as a plain parameter rather than held in a dynamic var,
-;; and is APPLIED rather than compared. Two Glojure findings forced both:
-;; `^:dynamic` on this var is not honoured there ("cannot dynamically bind
-;; non-dynamic var"), and `(= key-fn keyword)` throws ("comparing uncomparable
-;; type lang.ArityFn"). Threading a parameter is portable and is less code.
+;; and is APPLIED rather than compared. Two portability findings forced both:
+;; `^:dynamic` is not honoured everywhere, and comparing two functions is not
+;; portable either. Threading a parameter works anywhere and is less code.
 
 (defn- parse-value [s i key-fn]
   (let [i (skip-ws s i)]

@@ -4,35 +4,17 @@
 ;; koine/route.cljc itself must contain none, which is the point of the
 ;; namespace and is asserted by grep in route_test.cljc.
 ;;
-;; Two host facts shape this file:
-;;   - Glojure and let-go cannot bind :port 0, so ports are explicit.
-;;   - koine.fs/exists? is implemented for the JVM and cljgo only, so on
-;;     let-go and Glojure the host stat call is injected into `static` via
-;;     its :exists?/:directory? overrides. That is the whole gap: every
-;;     other line of koine.route is the same code on all four hosts.
-#?(:lg (require '[os]))
+;; Ports are explicit rather than :port 0, so the check is reproducible.
 
-(require 'koine.route 'koine.http 'koine.server 'koine.time)
+(require 'koine.route 'koine.http 'koine.server 'koine.time 'koine.fs)
 (alias 'r 'koine.route) (alias 'h 'koine.http)
 (alias 'srv 'koine.server) (alias 'time 'koine.time)
 
-(def fs-opts
-  #?(:clj   {}                                    ; koine.fs works here
-     :cljgo {}                                    ; and here
-     :lg    {:exists?    (fn [p] (some? (os/stat p)))
-             :directory? (fn [p] (boolean (:dir? (os/stat p))))}
-     :glj   {:exists?    (fn [p] (nil? (nth (os.Stat p) 1)))
-             :directory? (fn [p] (let [s (os.Stat p)]
-                                   (and (nil? (nth s 1)) (.IsDir (nth s 0)))))}
-     :default {}))
+(def exists?* (fn [p] (koine.fs/exists? p)))
 
-(def exists?*
-  (or (:exists? fs-opts)
-      (fn [p] (koine.fs/exists? p))))
-
-;; The static root is koine's own source dir — a directory that exists on
-;; every host with no fixture to create. run-conformance.sh runs from src/,
-;; a JVM test run from the repo root.
+;; The static root is koine's own source dir — a directory that exists with no
+;; fixture to create. run-conformance.sh runs from src/, a JVM test run from the
+;; repo root.
 (def static-root (if (exists?* "koine/route.cljc") "koine" "src/koine"))
 
 (defn- GET [path] {:method :get :path path :headers {} :body ""})
@@ -52,7 +34,7 @@
 (def log-entry (first (deref logged)))
 
 ;; ---------------------------------------------------------------- static
-(def files (r/static static-root fs-opts))
+(def files (r/static static-root {}))
 
 ;; ----------------------------------------------------------------- proxy
 (def up-port   (+ 19200 (rand-int 300)))
@@ -78,7 +60,7 @@
 (def served   (h/request {:method :get  :url (str base "/static/route.cljc")}))
 ;; NOTE: traversal is asserted IN-PROCESS only. Over the wire it would test
 ;; the host's mux, not koine.route — Go's ServeMux cleans dot segments and
-;; 301s before a handler ever sees them, so the four hosts legitimately
+;; 301s before a handler ever sees them, so the both hosts legitimately
 ;; disagree on what reaches us. What koine.route owns is: given a path with
 ;; `..` in it, refuse. That is asserted directly.
 (def missing  (h/request {:method :get  :url (str base "/static/nope.txt")}))
@@ -148,7 +130,7 @@
   (doseq [[l g w] fails] (println "  FAIL" l "got" (pr-str g) "want" (pr-str w)))
   (println (str (- (count cases) (count fails)) "/" (count cases) " pass")))
 
-;; let-go cannot stop a server (http/serve wraps ListenAndServe); the process
+;; the process
 ;; exit does it.
 (doseq [hd [edge upstream]]
   (try (srv/stop! hd) (catch #?(:glj go/any :default Exception) _ nil)))

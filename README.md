@@ -1,17 +1,16 @@
 # koine
 
-**Write `.cljc` once, run it on every Clojure.**
+**Write `.cljc` once, run it on Clojure and on cljgo.**
 
-One API over four Clojure runtimes, from a single source file:
+One API over two Clojure runtimes, from a single source file:
 
-| tier | runtime | status |
+| runtime | reader feature | status |
 |---|---|---|
-| **supported** | Clojure (JVM) · cljgo | every capability, or it does not ship |
-| **nice to have** | Glojure | implemented where straightforward |
-| **best effort** | let-go | works today; never gates a release |
+| Clojure (JVM) | `:clj` | every capability, or it does not ship |
+| cljgo | `:cljgo` | every capability, or it does not ship |
 
-Supported means supported: a gap on JVM or cljgo blocks the release. The other
-two are kept green because they are cheap signal, not because they are promised.
+Both are supported outright: a gap on either blocks a release, and every
+capability is proven on both — interpreted and as an AOT binary.
 
 *Koine* was the common tongue: the dialect that let people who spoke different Greeks
 understand each other. That is this library's whole job.
@@ -21,7 +20,7 @@ HTTP, subprocesses, the filesystem, environment variables — plus JSON, and it 
 **only** place in your codebase that contains a reader conditional. The Java and the Go
 live inside koine and never surface.
 
-Adding a fifth runtime is a change *inside koine*: one branch in one file, which every
+Adding a runtime is a change *inside koine*: one branch in one file, which every
 library built on it inherits at once.
 
 **Scope, deliberately narrow:** koine covers only what touches the host. Anything that
@@ -60,19 +59,17 @@ portable API, and let everything above it be plain Clojure.
 | namespace | what | how |
 |---|---|---|
 | `koine.json` | `write-str` / `read-str` | **pure `clojure.core`** — no host code, no deps |
-| `koine.env` | `get-env` / `expand` | `System/getenv` (jvm, let-go) · `os.Getenv` (glojure) · `cljg.system/getenv` (cljgo) |
-| `koine.http` | `request` / `post-json` | `java.net.http` · `net:http` · `http` ns · `cljg.net.http` |
-| `koine.stream` | `sse-post` / `parse-sse-line` | `BodyHandlers/ofInputStream` · chunked `Body.Read` · `:as :stream` (let-go, cljgo) |
-| `koine.process` | `sh` / `spawn` | `ProcessBuilder` · `os:exec` · `os` ns · `cljg.io` + `cljg.process` |
-| `koine.fs` | `exists?` `directory?` `list-tree` `find-files` `read-bytes` `write-bytes` | `java.io.File` · `java.nio` · `cljg.io` · `io`/`os` ns |
-| `koine.time` | `now-ms` `mono-ms` `sleep!` `iso-str` `parse-iso` | `System/nanoTime` · `java.time.Instant` · `cljg.date` · `cljg.system` |
-| `koine.codec` | `encode` / `decode` / `decode-bytes` (base64) | `java.util.Base64` · `cljg.security` · `io/encode` · pure |
+| `koine.env` | `get-env` / `expand` | `System/getenv` · `cljg.system/getenv` |
+| `koine.http` | `request` / `post-json` / `failed?` | `java.net.http` · `cljg.net.http` |
+| `koine.stream` | `sse-post` / `parse-sse-line` | `BodyHandlers/ofInputStream` · `:as :stream` |
+| `koine.process` | `sh` / `spawn` / `stderr-lines` | `ProcessBuilder` · `cljg.process` |
+| `koine.fs` | `exists?` `directory?` `list-tree` `find-files` `read-bytes` `write-bytes` | `java.io.File` · `java.nio` · `cljg.io` |
+| `koine.time` | `now-ms` `mono-ms` `sleep!` `iso-str` `parse-iso` | `System/nanoTime` · `cljg.date` · pure ISO |
+| `koine.codec` | `encode` / `decode` / `decode-bytes` (base64) | `java.util.Base64` · `cljg.security` |
 | `koine.host` | `id` / `tier` / `supports?` | pure — what THIS host can do, so a caller can degrade without a `catch` |
 
-Reader features, confirmed from each implementation's source: `:clj` · `:cljgo`
-(cljgo ADR 0036) · `:glj` (`pkg/reader/reader.go:1403`) · `:lg`
-(`pkg/compiler/reader.go:1122`; let-go can also opt into `:clj`/`:bb` via
-`set-read-clj!` / `LG_READ_CLJ`, off by default).
+Reader features, confirmed from each implementation's source: `:clj` and
+`:cljgo` (cljgo ADR 0036).
 
 ## The JSON encoder is ours on purpose
 
@@ -102,27 +99,24 @@ three choices once, for every host:
    are escaped. HTML characters are not — that's a Go default, not a JSON rule.
 
 Decoding is **also** ours, for a different reason. Delegating it looked free —
-parsing has no formatting choices to disagree about — but across four hosts it
-would mean four parsers to keep in agreement, and two are not even reachable:
-cljgo's decoder is a private builtin, and Glojure does not ship `encoding/json`
-in its default package set. One core-only parser is smaller *and* more portable.
+parsing has no formatting choices to disagree about — but it would mean one
+parser per host to keep in agreement, and cljgo's decoder is a private builtin
+that is not reachable at all. One core-only parser is smaller *and* more
+portable.
 
 ## Status
 
-**Early.** Verified on Clojure 1.12.5, cljgo 0.1.0-dev, Glojure and let-go.
+**Early.** Verified on Clojure 1.12.5 and cljgo (>= v0.8.2).
 
-The JSON conformance suite passes **9/9 on all four hosts** — including every
+The JSON conformance suite passes **9/9 on both hosts** — including every
 payload where the hosts' own JSON libraries diverged.
 
 ### Portability bugs this shook out
 
-Writing one file for four hosts surfaces things that look fine on the JVM:
+Writing one file for more than one host surfaces things that look fine on the JVM:
 
-- **`(= key-fn keyword)` throws on Glojure** — "comparing uncomparable type
-  `lang.ArityFn`". Functions are not comparable there. Apply the fn; never
-  compare it.
-- **`^:dynamic` is not honoured on Glojure** — "cannot dynamically bind
-  non-dynamic var". Thread the parameter instead; it is also less code.
+- **Comparing functions is not portable** — `(= key-fn keyword)` throws on some
+  hosts. Apply the fn; never compare it.
 - **Go's `os.Getenv` returns `""` where the JVM returns `null`** — and `""` is
   *truthy* in Clojure, so `(or (getenv x) default)` silently never falls back on
   Go-hosted dialects. `koine.env` normalises empty to nil.
@@ -161,9 +155,6 @@ than shipping a branch that throws on a tier-1 host. What remains:
 - **gloat and Joker are untested.** Every seam function ends in a `:default`
   branch that throws a named, actionable error, so adding a dialect is one
   branch in one file.
-- **Tier 2/3 hosts lack `process/sh`.** Glojure and let-go have no subprocess
-  route, so `process_check`, `fs_check` and `mcp_check` do not run there. They
-  are best-effort tiers and never gate a release (see `PORTING.md`).
 
 ## Install
 
@@ -195,8 +186,8 @@ special form). If you were on `0.2.0`, that is the one call to change.
 
 ## Examples
 
-Four real projects — Clojure (JVM), cljgo, Glojure and let-go — consuming koine
-**from Clojars** and running the **same source and the same tests** on all four:
+Two real projects — Clojure (JVM) and cljgo — consuming koine **from Clojars**
+and running the **same source and the same tests** on both:
 
 ```bash
 ./examples/run-both.sh
@@ -205,9 +196,7 @@ Four real projects — Clojure (JVM), cljgo, Glojure and let-go — consuming ko
 ```
 == Clojure (JVM) - tests   Ran 9 tests containing 34 assertions. 0 failures
 == cljgo - tests           Ran 9 tests containing 34 assertions. 0 failures
-== Glojure - tests         Ran 9 tests containing 34 assertions. 0 failures
-== let-go - tests          Tests: 9 Pass: 23 Fail: 0 Error: 0
-== diff                    jvm == cljgo == glojure; let-go took its documented fallbacks
+== diff                    jvm == cljgo, byte for byte
 ```
 
 `examples/clojure-app/src/demo/app.cljc` has no reader conditional, no `java.`

@@ -16,7 +16,7 @@
 ;;   timeout 30 cljgo run stream_check.cljc
 ;;
 ;; The base URL comes from a file rather than an env var on purpose: cljgo has
-;; no environment access at all, and `slurp` is verified on all four hosts.
+;; no environment access at all, and `slurp` is verified on both hosts.
 (require 'koine.stream 'koine.time 'clojure.string)
 (alias 'stream 'koine.stream)
 (alias 'ktime 'koine.time)
@@ -59,14 +59,14 @@
             res (stream/sse-post (str base path) headers "{}"
                                  (fn [d] (swap! log conj [(- (ktime/mono-ms) t0) d])))]
         {:ok? true :status (:status res) :events @log})
-      ;; `Throwable` does not exist on Glojure, so catch Exception. And read the
+      ;; Catch Exception rather than Throwable, and read the
       ;; message with `ex-message`: `(str e)` prints `#object[*lang.ExceptionInfo]`
       ;; on cljgo, which would hide the very text this check exists to assert.
       (catch Exception e {:ok? false :msg (or (ex-message e) (str e))}))))
 
 (def main   (collect "/sse" {"content-type" "application/json"}))
-;; empty headers is its own case: let-go's client panics on `:headers {}` (it
-;; is neither nil nor walkable there), so koine has to omit the key.
+;; empty headers is its own case: koine omits the key entirely rather than
+;; sending `:headers {}`, which some clients handle badly.
 (def bare   (when (:ok? main) (collect "/sse" {})))
 ;; 12000 bytes on one line — a rune is guaranteed to straddle a read boundary.
 (def wide   (when (:ok? main) (collect "/utf8" {})))

@@ -22,11 +22,6 @@
   ([name default]
    (or (blank->nil
         #?(:clj   (System/getenv (str name))
-          ;; let-go ships Java-shaped shims, so System/getenv works there too.
-          :lg    (System/getenv (str name))
-          ;; Glojure exposes Go's stdlib directly; `/` in package names is
-          ;; munged to `:`, so os.Getenv is reached as-is.
-          :glj   (os.Getenv (str name))
           ;; CLOSED 2026-07-30: cljgo grew `cljg.system/getenv` (a Go os.Getenv
           ;; shim), so this no longer needs `require-go '[os]` — which would
           ;; only work AOT and would put a host value on cljgo's nil-substituting

@@ -19,8 +19,6 @@
   | host    | streams? | route                                             |
   |---------|----------|---------------------------------------------------|
   | JVM     | yes      | `HttpResponse$BodyHandlers/ofInputStream`          |
-  | let-go  | yes      | `(http/request {… :as :stream})` + `io/line-seq`   |
-  | Glojure | yes      | `net/http` + chunked `Body.Read` into `bytes.Buffer` |
   | cljgo   | yes      | `(cljg.net.http/request {… :as :stream})` + `cljg.stream/read-line` |
 
   The cljgo row was `no` until 2026-07-30 — `cljg.net.http` buffered through
@@ -53,9 +51,8 @@
 
 (defn- strip-eol
   "Drop one trailing LF and then one trailing CR. Hosts disagree about whether
-  their line reader keeps the terminator (Glojure's chunked reader does; the
-  JVM's `readLine` and let-go's `io/line-seq` do not), so normalise here rather
-  than in three places."
+  their line reader keeps the terminator, so normalise here rather than at each
+  seam."
   [s]
   (let [s (if (str/ends-with? s "\n") (subs s 0 (dec (count s))) s)]
     (if (str/ends-with? s "\r") (subs s 0 (dec (count s))) s)))
@@ -90,7 +87,7 @@
 
 (defn- emit!
   "Feed one raw line to the caller's callback if it carries data.
-  `on-event` is APPLIED, never compared — `(= f g)` throws on Glojure."
+  `on-event` is APPLIED, never compared: comparing functions is not portable."
   [on-event line]
   (when-let [d (:data (parse-sse-line line))]
     (on-event d))
@@ -110,77 +107,7 @@
 
   Throws on a host with no incremental route. It does not quietly buffer."
   [url headers body on-event]
-  #?(:lg
-     ;; let-go's own client already has the seam: `:as :stream` swaps the
-     ;; buffered `io.ReadAll` body for a boxed reader, and `io/line-seq` over it
-     ;; is a genuine lazy seq backed by `bufio.Reader.ReadString` (pkg/rt/
-     ;; ions.go `makeLineSeq`) — one host read per realised element.
-     ;; `:headers` is omitted rather than passed as `{}`: let-go's client tests
-     ;; the key for nil and then walks the seq, and an EMPTY map is neither nil
-     ;; nor walkable there — it panics with a nil-pointer dereference inside the
-     ;; host. A caller with no headers is normal, so absorb it here.
-     (let [r (http/request (cond-> {:method :post
-                                    :url    url
-                                    :body   (or body "")
-                                    :as     :stream}
-                             (seq headers) (assoc :headers headers)))
-           rdr (:body r)]
-       (doseq [line (io/line-seq rdr)]
-         (emit! on-event line))
-       (io/close rdr)
-       {:status (:status r)})
-
-     :glj
-     ;; Go's `net/http` is in Glojure's default package map, but `bufio` is NOT
-     ;; (see `cmd/gen-import-interop/main.go`), so there is no ReadString to
-     ;; borrow — the chunking is hand-rolled.
-     ;;
-     ;; Bytes, not a string, are what accumulate between reads. A 4 KiB read can
-     ;; land mid-rune, and decoding the partial chunk would corrupt any
-     ;; non-ASCII token. `bytes.Buffer` holds the undecoded tail and
-     ;; `ReadBytes(10)` hands back only whole lines; 0x0A can never occur inside
-     ;; a multi-byte UTF-8 sequence, so splitting on the byte is safe.
-     (let [rr  (net:http.NewRequest "POST" url (strings.NewReader (or body "")))
-           req (nth rr 0)]
-       (when (nth rr 1)
-         (throw (ex-info (str "koine.stream/sse-post: bad request: " (nth rr 1))
-                         {:url url})))
-       (doseq [[k v] headers]
-         (.Set (.Header req) (name k) (str v)))
-       (let [dd (.Do net:http.DefaultClient req)]
-         (when (nth dd 1)
-           (throw (ex-info (str "koine.stream/sse-post: " (nth dd 1)) {:url url})))
-         (let [resp (nth dd 0)
-               rbody (.Body resp)
-               chunk (go/make (go/slice-of go/byte) 4096)
-               pend  (bytes.NewBufferString "")
-               ;; drain every COMPLETE line; the partial tail goes back in
-               drain! (fn []
-                        (loop []
-                          (let [lr   (.ReadBytes pend 10)
-                                bs   (nth lr 0)
-                                done (nth lr 1)]
-                            (if done
-                              ;; no delimiter: that was the tail, not a line
-                              (when (pos? (go/len bs)) (.Write pend bs))
-                              (do (emit! on-event (.String (bytes.NewBuffer bs)))
-                                  (recur))))))]
-           (loop []
-             (let [r (.Read rbody chunk)
-                   n (nth r 0)
-                   e (nth r 1)]
-               (when (pos? n)
-                 (.Write pend (go/slice chunk 0 n))
-                 (drain!))
-               (if e
-                 ;; EOF: a last line with no terminator still counts
-                 (let [tail (.String pend)]
-                   (when (not= "" tail) (emit! on-event tail))
-                   (.Close rbody)
-                   {:status (.StatusCode resp)})
-                 (recur)))))))
-
-     :clj
+  #?(:clj
      ;; `BodyHandlers/ofLines` is the obvious choice and it is a TRAP: measured
      ;; against a server emitting 4 events 150 ms apart, every line surfaced at
      ;; ~605 ms — the whole body first, then a replay. Same with `sendAsync`.

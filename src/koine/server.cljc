@@ -27,8 +27,6 @@
   |---------|-------|---------|-------|-------|
   | jvm     | yes   | yes     | yes   | yes   |
   | cljgo   | yes   | yes     | yes   | no    |
-  | glojure | yes   | NO      | yes   | yes   |
-  | let-go  | yes   | NO      | NO    | yes   |
 
   Where a host cannot do something it throws a named, actionable error at
   the point of use rather than pretending."
@@ -54,12 +52,10 @@
 
 (defn- sleep-ms
   "Best-effort readiness pause. Only the two hosts whose serve call is
-  blocking (let-go, Glojure — both go into a `future`) need it; the JVM
+  blocking (those that go into a `future`) need it; the JVM
   and cljgo have bound the socket before `serve` returns."
   [n]
   #?(:clj   (Thread/sleep (long n))
-     :lg    (sleep n)
-     :glj   (time.Sleep (* n 1000000))
      :default nil))
 
 (defn- handle*
@@ -82,7 +78,7 @@
   Returns an opaque handle for `port` and `stop!`.
 
   The default `:path` of \"/\" is a prefix/catch-all on all four hosts and is
-  the only value that behaves identically everywhere — let-go's `http/serve`
+  the only value that behaves identically everywhere — some hosts' `serve`
   takes no pattern at all, so a non-\"/\" path is NOT enforced there. The
   handler always receives `:path`, so filter in the handler if it matters."
   [handler {:keys [port host path] :or {port 0 host "127.0.0.1" path "/"}}]
@@ -137,77 +133,6 @@
                               {:port port :block? false :ops false :middleware []})]
        (handle* (:port s) host path (fn [] ((:stop s)) nil)))
 
-     :glj
-     ;; Glojure coerces an IFn to a Go func when the target parameter is a
-     ;; func type (pkg/lang/apply.go:287), so a plain Clojure fn IS a
-     ;; http.HandlerFunc. That is the whole trick; everything else is
-     ;; ordinary Go interop.
-     (let [_   (when (zero? port)
-                 (throw (ex-info (str "koine.server/serve: :port 0 is not supported on Glojure — "
-                                      "its default package set has no plain `net`, so no net.Listener "
-                                      "can be created and the port picked by the OS cannot be read "
-                                      "back; pass an explicit :port")
-                                 {:host host})))
-           mux (net:http.NewServeMux)
-           srv (new net:http.Server)]
-       (.HandleFunc
-         mux path
-         (fn [w r]
-           ;; io.ReadAll is multi-return, which Glojure surfaces as [val err].
-           (let [body (.String (bytes.NewBuffer (first (io.ReadAll (.Body r)))))
-                 hs   (reduce (fn [m e]
-                                ;; http.Header is map[string][]string
-                                (assoc m (lower (first e)) (str (first (second e)))))
-                              {} (seq (.Header r)))
-                 res  (normalize-response
-                        (handler {:method  (keyword (lower (.Method r)))
-                                  :path    (.Path (.URL r))
-                                  :headers hs
-                                  :body    body}))]
-             (doseq [[k v] (:headers res)]
-               (.Set (.Header w) (header-name k) (str v)))
-             (.WriteHeader w (:status res))
-             (io.WriteString w (:body res)))))
-       (set! (.Addr srv) (str host ":" port))
-       (set! (.Handler srv) mux)
-       (future (.ListenAndServe srv))
-       (sleep-ms 200)
-       (handle* port host path (fn [] (.Close srv) nil)))
-
-     :lg
-     ;; let-go ships http/serve, but it is http.ListenAndServe under the
-     ;; hood (pkg/rt/http.go:177) — it blocks and hands back no server
-     ;; value. So: run it in a future, and be honest that neither the
-     ;; bound port nor a shutdown is reachable.
-     (let [_ (when (zero? port)
-               (throw (ex-info (str "koine.server/serve: :port 0 is not supported on let-go — "
-                                    "http/serve wraps Go's http.ListenAndServe (let-go "
-                                    "pkg/rt/http.go:177) and returns no server value, so the port "
-                                    "picked by the OS cannot be read back; pass an explicit :port")
-                               {:host host})))]
-       (future
-         (http/serve (fn [req]
-                       (let [res (normalize-response
-                                   (handler {:method  (:request-method req)
-                                             :path    (:path req)
-                                             :headers (or (:headers req) {})
-                                             :body    (str (or (:body req) ""))}))]
-                         ;; let-go's Handler PANICS on an empty-but-present
-                         ;; :headers map — it checks `headers != NIL` and then
-                         ;; walks the seq assuming entries exist
-                         ;; (pkg/rt/http.go:123-137). Absent is the safe shape,
-                         ;; and normalize-response always supplies the key.
-                         (if (seq (:headers res)) res (dissoc res :headers))))
-                     (str host ":" port)))
-       (sleep-ms 200)
-       (handle* port host path
-                (fn []
-                  (throw (ex-info (str "koine.server/stop!: not supported on let-go — http/serve "
-                                       "wraps http.ListenAndServe (let-go pkg/rt/http.go:177) and "
-                                       "exposes no server value to shut down; the server lives "
-                                       "until the process exits")
-                                  {:port port})))))
-
      :default
      (throw (ex-info "koine.server/serve: no implementation for this host; add a branch in koine/server.cljc"
                      {:port port :host host}))))
@@ -220,12 +145,7 @@
 
 (defn stop!
   "Shut the server down. Returns nil. Idempotent — the second call is a
-  no-op, so teardown can be unconditional.
-
-  Throws on let-go, every time, because there is nothing to stop there;
-  the flag is only set once the underlying shutdown actually succeeded, so
-  an unsupported host stays loudly unsupported rather than going quiet
-  after the first attempt."
+  no-op, so teardown can be unconditional."
   [handle]
   (let [flag (:stopped handle)]
     (when-not (deref flag)

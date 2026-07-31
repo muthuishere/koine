@@ -9,28 +9,9 @@
 
 ;; cljgo needs cljg.date / cljg.system interned before `now`, `nano-time` and
 ;; `sleep` are reachable. A top-level reader conditional with no branch for the
-;; other hosts reads as nothing there (verified on all four hosts), so no other
+;; other hosts reads as nothing there (verified on both hosts), so no other
 ;; dialect pays for this.
 #?(:cljgo (require '[cljg.date] '[cljg.system]))
-
-(def ^:private mono-floor
-  "Highest value `mono-ms` has ever returned, on hosts where the underlying
-  clock is wall-clock-derived and can therefore step backwards (let-go,
-  cljgo). Clamping here is what makes the 'never goes backwards' guarantee
-  true everywhere rather than only on the JVM and Glojure."
-  (atom 0))
-
-(defn- clamp-mono
-  "Return `v`, or the previous high-water mark when the clock stepped back."
-  [v]
-  (swap! mono-floor (fn [floor] (if (> v floor) v floor))))
-
-(def ^:private glj-anchor
-  "Glojure only: the `time.Time` this process anchors elapsed time on. Go's
-  Time carries a monotonic reading, so `time.Since` on it is a true monotonic
-  stopwatch. Seeded atomically on first use — `swap!` returns the winning
-  value, so concurrent first calls share one anchor and cannot reset it."
-  (atom nil))
 
 (defn now-ms
   "Wall-clock time in milliseconds since the Unix epoch, as a long.
@@ -40,12 +21,6 @@
   []
   (long
    #?(:clj   (System/currentTimeMillis)
-      ;; let-go ships Java-shaped shims; System/currentTimeMillis is
-      ;; time.Now().UnixMilli() under the hood (pkg/rt/system.go:116).
-      :lg    (System/currentTimeMillis)
-      ;; Glojure exposes Go's stdlib directly, `/` munged to `:`; Go methods
-      ;; are ordinary interop.
-      :glj   (.UnixMilli (time.Now))
       ;; cljgo: `cljg.date/now` is the public epoch-millis fn (a
       ;; time.Now().UnixMilli() shim). cljg.os/now is the older cron-facing
       ;; spelling of the same thing; cljg.date is where the clock lives now.
@@ -58,18 +33,12 @@
   Only DIFFERENCES between two readings are meaningful — the origin differs
   per host. Guaranteed never to go backwards.
 
-  JVM (System/nanoTime), Glojure (Go's monotonic clock, via time.Since on a
-  process anchor) and cljgo (`cljg.date/nano-time`, monotonic nanos since
-  process start) have a true monotonic source. let-go does NOT: its
-  System/nanoTime is `time.Now().UnixNano()`, i.e. wall clock with no monotonic
-  reading (pkg/rt/system.go:121). There it FALLS BACK to wall clock, clamped to
-  a high-water mark so a backwards clock step shows as zero elapsed rather than
-  a negative duration."
+  All three hosts have a TRUE monotonic source: System/nanoTime on the JVM,
+  and `cljg.date/nano-time` on cljgo. No host needs the wall-clock fallback koine
+  used to carry."
   []
   (long
    #?(:clj   (quot (System/nanoTime) 1000000)
-      :lg    (clamp-mono (System/currentTimeMillis))   ; fallback: wall clock
-      :glj   (.Milliseconds (time.Since (swap! glj-anchor (fn [a] (or a (time.Now))))))
       ;; cljgo: a real monotonic reading (Go's monotonic clock) since 2026-07-30
       ;; — no clamp needed, and unlike -nano-time this one is public.
       :cljgo (quot (cljg.date/nano-time) 1000000)
@@ -85,10 +54,6 @@
   (let [ms (long ms)]
     (when (pos? ms)
       #?(:clj   (Thread/sleep ms)
-         ;; let-go has no Thread class; `sleep` is a core fn taking ms.
-         :lg    (sleep ms)
-         ;; Go's time.Sleep takes a Duration, which is int64 NANOseconds.
-         :glj   (time.Sleep (* ms 1000000))
          ;; cljgo has no Thread class, but `cljg.system/sleep` is the public
          ;; time.Sleep shim (ms). It replaces the old parking-on-a-core.async
          ;; `timeout` channel trick, which worked but spun up a channel to sleep.
@@ -107,9 +72,8 @@
 ;; the calendar is arithmetic, not a host capability. Rule 3 — if it is
 ;; expressible in `clojure.core`, it is not a seam. The earlier version branched
 ;; on `java.time.Instant` and `cljg.date`, which meant two implementations to
-;; keep byte-identical AND nothing at all for Glojure and let-go (let-go's
-;; `Instant/ofEpochMilli` answers "Instant date coercion is not supported under
-;; let-go"). One pure implementation serves four hosts and cannot drift.
+;; keep byte-identical. One pure implementation serves every host and cannot
+;; drift.
 ;;
 ;; The civil-from-days algorithm is Howard Hinnant's, which is exact for the
 ;; proleptic Gregorian calendar over the whole range a 64-bit millisecond count
@@ -150,7 +114,7 @@
 
 (defn- pad
   "`n` as a decimal string, left-padded with zeros to `width`. `format` is not
-  used: its %02d works on all four hosts, but building the string by hand keeps
+  used: its %02d works on both hosts, but building the string by hand keeps
   this function free of any host formatting behaviour at all."
   [n width]
   (let [s (str n)]

@@ -6,31 +6,30 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 name: koine
 owns: the koine library — one `.cljc` source reaching the host (HTTP, subprocess, fs, env)
-  across four Clojure runtimes (JVM, cljgo, babashka, ClojureScript); host-parity semantics;
-  what each runtime tier can and cannot do
+  across two Clojure runtimes (JVM, cljgo); host-parity semantics; what each can and cannot do
 will-not-speak-for: consumers of koine, their build setups, or anything outside this repo
-depends-on: the four host runtimes it targets
+depends-on: the two host runtimes it targets (Clojure JVM, cljgo)
 groups: @all
 
 ## What this project is
 
 **koine** — one small library that lets a single `.cljc` source file reach the
-host (HTTP, subprocesses, filesystem, environment) on **four different Clojure
-runtimes**, so that everything built on top of it can be plain, dialect-blind
+host (HTTP, subprocesses, filesystem, environment) on **Clojure (JVM) and
+cljgo**, so that everything built on top of it can be plain, dialect-blind
 Clojure.
 
 *Koine* was the common tongue — the dialect that let people who spoke different
 Greeks understand each other. That is the whole job.
 
-| tier | runtime | reader feature | promise |
-|---|---|---|---|
-| **supported** | Clojure (JVM) | `:clj` | every capability, or it does not ship |
-| **supported** | cljgo | `:cljgo` | every capability, or it does not ship |
-| **nice to have** | Glojure | `:glj` | implemented where straightforward |
-| **best effort** | let-go | `:lg` | kept green; never gates a release |
+| runtime | reader feature | promise |
+|---|---|---|
+| Clojure (JVM) | `:clj` | every capability, or it does not ship |
+| cljgo | `:cljgo` | every capability, or it does not ship |
 
-A gap on JVM or cljgo blocks a release. The other two are cheap signal, not a
-promise.
+Both are supported outright — a gap on either blocks a release. koine carried
+two more runtimes as lower tiers until 2026-07-31 and removed them: an
+unpromised host still costs every branch, every docstring and every conformance
+row, and a green check on a runtime nobody ships to does not pay for that.
 
 The reason koine exists at all: **the pure-Clojure ecosystem is empty, not
 thin.** Eleven popular libraries were scanned — `data.json`, `edamame`,
@@ -68,7 +67,7 @@ Read this before adding anything.
 |---|---|
 | `src/koine/*.cljc` | The library. One namespace per capability. |
 | `src/koine/host.cljc` | Which host, which tier, and `supports?` — how a caller degrades WITHOUT a host-specific `catch`. |
-| `examples/` | Four consumer projects (JVM, cljgo, Glojure, let-go) on the published Clojars artifact, one shared source, `./examples/run-both.sh`. |
+| `examples/` | Two consumer projects (JVM, cljgo) on the published Clojars artifact, one shared source, `./examples/run-both.sh`. |
 | `src/conformance.cljc`, `src/*_check.cljc` | Host-parameterised conformance checks — run on **every** installed runtime. This is the real test suite. |
 | `test/koine/*_test.cljc` | `clojure.test` suites. **JVM only.** |
 | `run-conformance.sh` | Runs every check on every installed host, skipping the ones you don't have. |
@@ -77,7 +76,7 @@ Read this before adding anything.
 
 ## The prime directive
 
-**One source, identical behaviour, four hosts — proven, not assumed.**
+**One source, identical behaviour, both hosts — proven, not assumed.**
 
 1. **Reader conditionals live only in `src/koine/`.** That is the entire point:
    consumers write plain Clojure and never see a `#?`. A capability that leaks
@@ -90,8 +89,8 @@ Read this before adding anything.
    dialect-agnostic implementation or throws a **named, actionable** error —
    `"koine: no <capability> implementation for this host; add a branch in
    koine/<ns>.cljc"`. Never a silent `nil`, never an obscure resolution failure.
-4. **Branch order is `#?(:clj … :cljgo … :glj … :lg … :default …)`**, extended
-   in place. Adding a runtime is a branch, not a fork.
+4. **Branch order is `#?(:clj … :cljgo … :default …)`**, extended in place.
+   Adding a runtime is a branch, not a fork.
 5. **Byte-identical output is the contract.** If a capability can produce
    differing bytes across hosts, normalise it and add a conformance check that
    asserts the agreement.
@@ -101,15 +100,13 @@ Read this before adding anything.
 ```bash
 clojure -M:test          # JVM clojure.test suite (104 tests / 359 assertions)
 ./run-conformance.sh     # every check on every installed host — the real gate
-./examples/run-both.sh   # the published artifact, consumed on all four hosts
+./examples/run-both.sh   # the published artifact, consumed on both hosts
 ```
 
 Installing the other hosts:
 
 ```bash
-go install github.com/muthuishere/cljgo/cmd/cljgo@latest
-go install github.com/glojurelang/glojure/cmd/glj@latest
-go install github.com/nooga/let-go@latest
+go install github.com/muthuishere/cljgo/cmd/cljgo@latest   # >= v0.8.2
 ```
 
 Note `clojure -M:test` only proves the JVM. **A change is not verified until
@@ -161,10 +158,10 @@ the author never wrote.
 
 Each of these looked fine on the JVM and broke elsewhere. Treat them as rules.
 
-1. **`(= key-fn keyword)` throws on Glojure** — "comparing uncomparable type
-   `lang.ArityFn`". Apply a function; never compare one.
-2. **`^:dynamic` is not honoured on Glojure** — "cannot dynamically bind
-   non-dynamic var". Thread the parameter through; it is also less code.
+1. **Comparing functions is not portable** — apply a function; never compare
+   one.
+2. **`^:dynamic` is not honoured everywhere.** Thread the parameter through; it
+   is also less code.
 3. **Go's `os.Getenv` returns `""` where the JVM returns `nil`** — and `""` is
    *truthy* in Clojure, so `(or (getenv x) default)` silently never falls back
    on Go-hosted dialects. Normalise empty to `nil`.
@@ -177,22 +174,20 @@ Each of these looked fine on the JVM and broke elsewhere. Treat them as rules.
    not run time. Keep host results on a nil-tolerant path. *(New, 2026-07-30 —
    the most likely source of "works in `cljgo run`, fails in `cljgo build`".)*
 7. **`lang.Char` does not coerce to Go `byte` on cljgo** — pass the integer.
-8. **Glojure has `defprotocol` but NOT `reify` / `deftype` / `defrecord` /
-   `extend-type`** — all four answer `RTEvalError`, so a protocol there can be
-   declared and never implemented. Return a **map of closures** instead; that is
-   why `koine.process`'s child handle is a map (as `koine.server`'s already was).
+8. **Do not put a protocol in the API.** A host can ship `defprotocol` without
+   `reify` / `deftype` / `defrecord` / `extend-type`, leaving it declarable and
+   never implementable. Return a **map of closures**; that is why
+   `koine.process`'s child handle is a map, as `koine.server`'s already was.
 9. **Go's `byte` is UNSIGNED** — a byte read on a Go-hosted dialect is 128/255
    where the JVM gives -128/-1. koine normalises to the JVM contract at the
    boundary; `bytes_check` asserts it.
-10. **Glojure rejects struct-field assignment** — `(set! (.-Stdout c) …)` and
-    `(set! (.-Dir c) …)` both fail, so `:dir`/`:env` ride an `sh -c` wrapper.
-11. **`spit` resolves but is unbound on Glojure** ("cannot call nil"), and
-    `clojure.set` does not exist there at all. Neither shows up until called.
-12. **let-go's `os/sh` accepts `:in` and silently ignores it** — the child sees
-    empty stdin. Feed it through a redirect.
-13. **A capability probe must not be a `try`/`catch`** — catching needs
-    `Throwable` on the JVM, cljgo and let-go, and `go/error` on Glojure, so the
-    probe itself would be host-specific. Ask `koine.host/supports?` instead.
+10. **Setting a host struct's fields may be rejected**, so `:dir`/`:env` ride an
+    `sh -c` wrapper rather than assignment.
+11. **A var that RESOLVES may still be unbound** ("cannot call nil"), so
+    `(resolve 'x)` is not a capability probe. It does not show up until called.
+12. **A capability probe must not be a `try`/`catch`** — the catch symbol is not
+    the same everywhere, so the probe itself becomes host-specific. Ask
+    `koine.host/supports?` instead.
 
 ## JSON is ours on purpose
 

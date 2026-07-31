@@ -1,1 +1,0 @@
-../../../clojure-app/test/demo/app_test.cljc

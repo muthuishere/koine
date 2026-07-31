@@ -1,9 +1,9 @@
 (ns koine.process
   "Subprocesses, portable.
 
-  `sh` (run-to-completion) works on every host. `spawn` (a long-lived child
-  with piped stdin/stdout) is the one MCP stdio transports need, and is the
-  known gap on cljgo — see the cljgo work item in toolnexus ADR 0009."
+  `sh` runs a command to completion; `spawn` keeps a long-lived child with piped
+  stdin/stdout, which is what an MCP stdio transport needs and what `sh` cannot
+  express."
   (:require [clojure.string :as cstr])
   #?(:cljgo (:require [cljg.io :as cio])))
 
@@ -15,11 +15,9 @@
 
 ;; ------------------------------------------- helpers for the Go-hosted tiers
 ;;
-;; Glojure and let-go both reach subprocesses through Go's os/exec, and neither
-;; lets koine set the child's Dir or Env directly — Glojure rejects struct-field
-;; assignment, and let-go's os/sh takes only an argv. Both therefore get :dir and
-;; :env by wrapping the command in `sh -c`, which is why the quoting below is
-;; shared rather than written twice.
+;; :dir and :env are applied by wrapping the command in `sh -c` on hosts that
+;; cannot set them on the child directly, so the quoting helper below is shared
+;; rather than written twice.
 
 (defn- shq
   "Single-quote `s` for POSIX sh: wrap it, and end/escape/reopen each embedded
@@ -31,46 +29,12 @@
 (defn- wrap-cmd
   "The argv for `sh -c`, applying `dir` and `env` as shell built-ins. Returns
   nil when neither is needed, so the common case execs the binary directly."
-  [command dir env in-file]
-  (when (or dir (seq env) in-file)
+  [command dir env]
+  (when (or dir (seq env))
     (let [parts (concat (when dir [(str "cd " (shq dir) " &&")])
                         (map (fn [[k v]] (str (name k) "=" (shq v))) env)
-                        (map shq command)
-                        (when in-file [(str "< " (shq in-file))]))]
+                        (map shq command))]
       ["sh" "-c" (cstr/join " " parts)])))
-
-#?(:glj
-   (do
-     (defn- glj-argv [command dir env]
-       (or (wrap-cmd (map str command) dir env nil) (map str command)))
-
-     (defn- drain-reader
-       "Read a Go io.Reader to EOF and return it as a string. `bufio` is not in
-       Glojure's default package map (see koine.stream), so the loop is manual:
-       fixed-size Read into a slice, appended to a bytes.Buffer, until Read
-       reports an error — which at EOF is io.EOF, not a failure."
-       [rdr]
-       (let [chunk (go/make (go/slice-of go/byte) 4096)
-             buf   (bytes.NewBufferString "")]
-         (loop []
-           (let [r (.Read rdr chunk)
-                 n (nth r 0)
-                 e (nth r 1)]
-             (when (pos? n) (.Write buf (go/slice chunk 0 n)))
-             (if e (.String buf) (recur))))))))
-
-#?(:lg
-   (defn- lg-argv
-     "argv for let-go's os/sh. `in` is written to a temp file and redirected,
-     because os/sh's own :in option does not reach the child."
-     [command in dir env]
-     (if-let [wrapped (wrap-cmd (map str command) dir env
-                                (when in
-                                  (let [f (str (os/temp-dir) "/koine-stdin-" (System/currentTimeMillis))]
-                                    (spit f in)
-                                    f)))]
-       wrapped
-       (map str command))))
 
 (defn sh
   "Run `command` (a vector) to completion. Returns {:out :err :exit}.
@@ -96,33 +60,6 @@
                                                   dir (assoc :dir dir)
                                                   env (assoc :env env)))]
         {:out (:out r) :err (:err r) :exit (:exit r)})
-      :glj
-      ;; Go's os/exec, driven through PIPES rather than struct fields: Glojure
-      ;; rejects `(set! (.-Stdout c) …)` and `(set! (.-Dir c) …)` outright
-      ;; ("RTEvalError" — struct field assignment is not supported), so :dir and
-      ;; :env are applied by wrapping the command in `sh -c` instead, and the
-      ;; three streams are read off StdinPipe/StdoutPipe/StderrPipe, which do
-      ;; work. Same reason koine.stream hand-rolls its chunking on this host.
-      (let [c      (apply os:exec.Command (glj-argv command dir env))
-            stdin  (nth (.StdinPipe c) 0)
-            stdout (nth (.StdoutPipe c) 0)
-            stderr (nth (.StderrPipe c) 0)]
-        (.Start c)
-        (when in
-          (.Write stdin (.Bytes (bytes.NewBufferString (str in)))))
-        (.Close stdin)                       ; EOF, or the child waits forever
-        (let [out (drain-reader stdout)
-              err (drain-reader stderr)]
-          (.Wait c)
-          {:out out :err err :exit (.ExitCode (.ProcessState c))}))
-
-      :lg
-      ;; let-go's os/sh returns #os/ShellResult{:exit :out :err} directly. Its
-      ;; :in option is accepted and then IGNORED (measured 2026-07-31: the child
-      ;; sees empty stdin), and os/with-stdin wants an *exec.Cmd rather than the
-      ;; argv os/sh takes — so :in, :dir and :env all ride an `sh -c` wrapper.
-      (let [res (apply os/sh (lg-argv command in dir env))]
-        {:out (:out res) :err (:err res) :exit (:exit res)})
 
       :default
       (throw (ex-info "koine.process/sh: no implementation for this host; add a branch in koine/process.cljc"
@@ -133,10 +70,9 @@
 ;;
 ;; A child is a PLAIN MAP of closures — {:send-line! :read-line! :alive?
 ;; :close!} — and the four fns below just apply them. It was a `defprotocol` +
-;; `reify` until 2026-07-31, which cost the whole capability on Glojure: that
-;; host has `defprotocol` but NOT `reify`, `deftype`, `defrecord` or
-;; `extend-type` (all four answer RTEvalError), so a protocol there can be
-;; declared and never implemented. Its os/exec pipes work perfectly.
+;; `reify` until 2026-07-31, and a host turned up with `defprotocol` but no
+;; `reify`/`deftype`/`defrecord`/`extend-type` at all, so the protocol could be
+;; declared there and never implemented.
 ;;
 ;; A map of closures is the portable object: it needs nothing but `fn` and
 ;; `get`. koine.server's handle already works this way for the same reason, and
@@ -172,7 +108,7 @@
 ;; So a background reader drains it always, into a BOUNDED ring — a chatty
 ;; server must not grow the caller's heap — and `stderr-lines` hands back what is
 ;; there. `future` is the concurrency primitive because it is the one that exists
-;; on every host that has `spawn` (JVM, cljgo, Glojure — verified 2026-07-31).
+;; on every host that has `spawn` (JVM and cljgo, verified 2026-07-31).
 
 (def ^:private stderr-keep
   "How many trailing stderr lines a child retains. Enough to explain a crash,
@@ -258,82 +194,7 @@
          :close!       (fn [] (cljg.stream/close (:in p))
                          (or @exited (reset! exited ((:wait p)))))})
 
-      :glj
-      ;; Go's os/exec pipes. The line buffering is hand-rolled because `bufio` is
-      ;; not in Glojure's default package map (see koine.stream): read 4 KiB at a
-      ;; time into a pending buffer and hand back one complete line per call,
-      ;; keeping the tail. Splitting on the BYTE 0x0A is safe — it cannot occur
-      ;; inside a multi-byte UTF-8 sequence — whereas decoding a partial chunk to
-      ;; a string first would corrupt a non-ASCII line straddling two reads.
-      (let [c      (apply os:exec.Command (glj-argv command dir env))
-            stdin  (nth (.StdinPipe c) 0)
-            stdout (nth (.StdoutPipe c) 0)
-            stderr (nth (.StderrPipe c) 0)
-            sink   (atom [])
-            pend   (bytes.NewBufferString "")
-            chunk  (go/make (go/slice-of go/byte) 4096)
-            done   (atom nil)
-            buffered-line!
-            (fn []
-              (let [lr   (.ReadBytes pend 10)
-                    bs   (nth lr 0)
-                    miss (nth lr 1)]
-                (if-not miss
-                  (.String (bytes.NewBuffer (go/slice bs 0 (dec (go/len bs)))))
-                  (do (when (pos? (go/len bs)) (.Write pend bs))
-                      nil))))]
-        (.Start c)
-        ;; Drain stderr on its own reader — same 4 KiB chunking as stdout, since
-        ;; `bufio` is unreachable here too. Without this the child blocks once
-        ;; the pipe buffer fills, exactly as on the other hosts.
-        (let [echunk (go/make (go/slice-of go/byte) 4096)
-              epend  (bytes.NewBufferString "")]
-          (drain-into! sink
-                       (fn []
-                         (loop []
-                           (let [lr   (.ReadBytes epend 10)
-                                 bs   (nth lr 0)
-                                 miss (nth lr 1)]
-                             (if-not miss
-                               (.String (bytes.NewBuffer (go/slice bs 0 (dec (go/len bs)))))
-                               (do (when (pos? (go/len bs)) (.Write epend bs))
-                                   (let [r (.Read stderr echunk)
-                                         n (nth r 0)
-                                         e (nth r 1)]
-                                     (when (pos? n) (.Write epend (go/slice echunk 0 n)))
-                                     (cond
-                                       (pos? n) (recur)
-                                       e        (let [tail (.String epend)]
-                                                  (when (not= "" tail) tail))
-                                       :else    (recur))))))))))
-        {:send-line! (fn [s]
-                       (.Write stdin (.Bytes (bytes.NewBufferString (str s "\n"))))
-                       nil)
-         :read-line! (fn []
-                       (loop []
-                         (if-let [line (buffered-line!)]
-                           line
-                           (let [r (.Read stdout chunk)
-                                 n (nth r 0)
-                                 e (nth r 1)]
-                             (when (pos? n) (.Write pend (go/slice chunk 0 n)))
-                             (cond
-                               (pos? n) (recur)
-                               ;; EOF: a final line with no terminator counts
-                               e        (let [tail (.String pend)]
-                                          (when (not= "" tail) tail))
-                               :else    (recur))))))
-         :alive?     (fn [] (nil? @done))
-         :close!     (fn []
-                       (.Close stdin)
-                       (.Wait c)
-                       (or @done (reset! done (.ExitCode (.ProcessState c)))))})
 
       :default
-      ;; let-go lands here. Its os/exec returns an *exec.Cmd, but nothing in the
-      ;; io/os/unix namespaces reaches that Cmd's stdin/stdout pipes from
-      ;; Clojure, and os/sh is run-to-completion — so there is no honest
-      ;; streaming route. Throws rather than faking one (rule 2); let-go is
-      ;; tier 3 and never gates a release (PORTING.md).
       (throw (ex-info "koine.process/spawn: no implementation for this host; add a branch in koine/process.cljc"
                       {:command command})))))

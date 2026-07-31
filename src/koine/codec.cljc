@@ -12,8 +12,8 @@
   alphabet substitution is arithmetic, not a host capability. Only two things
   are host-shaped and they are small: turning a string into UTF-8 byte values
   and back. Where a host already ships base64 over exactly the types we have
-  (the JVM, cljgo, let-go for strings), that route is used instead: it is
-  faster, and it is one less thing to be subtly wrong about."
+  (the JVM and cljgo), that route is used instead: it is faster, and it is one
+  less thing to be subtly wrong about."
   (:require [clojure.string :as cstr])
   #?(:cljgo (:require [cljg.security :as sec])))
 
@@ -70,20 +70,14 @@
 
 ;; --------------------------------------------------------------- the seam
 ;;
-;; Only string <-> UTF-8 bytes is host-shaped. On Glojure a Go byte slice is
-;; indexable with `nth` and sized with `go/len`, so the pure transform above
-;; drives it directly — Glojure's own `encoding/base64` is registered in
-;; gljimports but is NOT in the default package map (same as `bufio`, see
-;; koine.stream), so it cannot be reached from ordinary code.
+;; Only string <-> UTF-8 bytes is host-shaped; the transform above is pure, so
+;; a host without a base64 library still gets a correct implementation.
 
 (defn- ->vals
   "A byte array / Go byte slice / seq of byte values as UNSIGNED values.
   `bit-and 255` folds the JVM's signed bytes and Go's unsigned ones together."
   [bs]
-  #?(:glj (if (sequential? bs)
-            (map (fn [b] (bit-and (long b) 255)) bs)
-            (map (fn [i] (bit-and (long (nth bs i)) 255)) (range (go/len bs))))
-     :default (map (fn [b] (bit-and (long b) 255)) (seq bs))))
+  (map (fn [b] (bit-and (long b) 255)) (seq bs)))
 
 (defn encode
   "Base64-encode `x` — a string (UTF-8) or a byte array. Returns a string."
@@ -91,13 +85,6 @@
   #?(:clj   (.encodeToString (java.util.Base64/getEncoder)
                              (if (string? x) (.getBytes ^String x "UTF-8") ^bytes x))
      :cljgo (sec/base64-encode x)
-     ;; let-go: io/encode handles STRINGS correctly; handed a byte-array it
-     ;; base64s the printed form ("#byte-array[0 1 65]"), which is silently
-     ;; wrong, so bytes are refused rather than corrupted.
-     :lg    (if (string? x)
-              (io/encode :base64 x)
-              (throw (ex-info "koine.codec/encode: let-go has no byte-array base64 (io/encode stringifies it); pass a string" {})))
-     :glj   (b64-encode-vals (->vals (if (string? x) (.Bytes (bytes.NewBufferString x)) x)))
      :default (throw (ex-info "koine.codec/encode: no implementation for this host; add a branch in koine/codec.cljc" {}))))
 
 (defn decode-bytes
@@ -105,10 +92,6 @@
   [s]
   #?(:clj   (.decode (java.util.Base64/getDecoder) ^String (str s))
      :cljgo (sec/base64-decode-bytes (str s))
-     ;; A vector of SIGNED values, matching what koine.fs/read-bytes returns on
-     ;; this host and what a JVM byte[] looks like once `vec`-ed — so a payload
-     ;; decoded here is byte-for-byte comparable with one decoded on the JVM.
-     :glj   (mapv (fn [v] (if (> v 127) (- v 256) v)) (b64-decode-vals s))
      :default (throw (ex-info "koine.codec/decode-bytes: no implementation for this host; add a branch in koine/codec.cljc"
                               {}))))
 
@@ -118,13 +101,5 @@
   [s]
   #?(:clj   (String. ^bytes (decode-bytes s) "UTF-8")
      :cljgo (sec/base64-decode (str s))
-     :lg    (io/decode :base64 (str s))
-     ;; Go has no string-from-byte-values constructor reachable here, so the
-     ;; bytes go through a bytes.Buffer — `WriteByte` takes an unsigned value,
-     ;; hence the mask. (`go/set-index` does not exist on this host, and
-     ;; (go/make (go/slice-of go/byte) n) would need the size up front.)
-     :glj   (let [buf (bytes.NewBufferString "")]
-              (doseq [v (b64-decode-vals s)] (.WriteByte buf (bit-and (long v) 255)))
-              (.String buf))
      :default (throw (ex-info "koine.codec/decode: no implementation for this host; add a branch in koine/codec.cljc"
                               {}))))

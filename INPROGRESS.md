@@ -67,7 +67,7 @@ also passes from a `cljgo build` binary.
 | `koine.fs` | ✅ | ✅ | ✅ **new** | `fs_check` 19/19 **new** |
 
 The gap this file called "the single biggest argument against publishing" — no
-tests at all on the four host-touching namespaces — is closed.
+tests at all on the host-touching namespaces — is closed.
 
 `src/env_check.cljc` was previously named `envcheck.cljc`, which
 `run-conformance.sh`'s `*_check.cljc` glob never matched, so it had never run in
@@ -107,8 +107,6 @@ Both supported hosts were driven as real *consumers*, not just as test hosts:
   items the library was justified by and they widen the frozen surface. Shipped
   in `0.1.0` rather than held back, but flagged unstable in the README — the
   cheap correction later is to move them to a second artifact.
-- **Tier 2/3 hosts have no subprocess route**, so `process_check`, `fs_check` and
-  `mcp_check` do not run on Glojure or let-go. Informational only (`PORTING.md`).
 
 ## Release mechanics (done)
 

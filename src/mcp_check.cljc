@@ -19,7 +19,7 @@
 (alias 'host 'koine.host)
 
 ;; Two reasons to skip, and they are different: no npx on the box (nothing to
-;; talk to), or a host with no streaming child at all (let-go — see koine.host).
+;; talk to), or a host with no streaming child at all (see koine.host).
 ;; Neither is a failure; both are reported rather than hidden.
 (def spawn? (host/supports? :process/spawn))
 (def npx? (and spawn? (zero? (:exit (proc/sh ["sh" "-c" "command -v npx >/dev/null"])))))

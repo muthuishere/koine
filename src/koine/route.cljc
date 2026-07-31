@@ -11,7 +11,7 @@
     proxying is `koine.http/request`      (already portable)
     timing   is `koine.time/mono-ms`      (already portable)
 
-  So the namespace inherits four-host support for free and adds no host code.
+  So the namespace inherits host support for free and adds no host code.
   If a change here seems to need a reader conditional, the design is wrong —
   the branch belongs in the seam namespace (`koine.server`, `koine.http`,
   `koine.fs`), not in a combinator. (There is a test asserting this file has
@@ -49,11 +49,9 @@
     still emitted, because getting the header right costs nothing.
   - `koine.server` hands over the path only, never the query string, so
     `forward` forwards the path and drops any query.
-  - `koine.fs/exists?`/`directory?` are implemented for the JVM and cljgo
-    only. `static` therefore takes `:exists?`/`:directory?`/`:read`
-    overrides: the DEFAULTS are the `koine.fs` fns, and a host where those
-    are unimplemented can supply its own without this file growing a branch.
-    (The fix belongs in `koine/fs.cljc`, not here.)"
+  - `static` takes `:exists?`/`:directory?`/`:read` overrides, defaulting to
+    the `koine.fs` fns. A caller with a virtual filesystem — or a host koine
+    has not seamed yet — supplies its own without this file growing a branch."
   (:require [clojure.string :as str]
             [koine.fs :as fs]
             [koine.http :as http]
@@ -217,7 +215,7 @@
   "Decode %XX escapes, ASCII only. Decoding matters for SECURITY, not for
   looks: `/%2e%2e/etc` must be rejected by the same test that rejects
   `/../etc`. Non-ASCII escapes are left verbatim rather than mangled into a
-  lone char — the four hosts disagree on whether the server layer decoded
+  lone char — the both hosts disagree on whether the server layer decoded
   the path already (Go's `URL.Path` is decoded, the JVM's `getRequestURI`
   is not), and an undecoded byte sequence at worst 404s, while a mangled one
   could smuggle."
@@ -311,7 +309,7 @@
 
 (defn- end-to-end
   "Drop hop-by-hop headers and lower-case the rest, so the same map shape
-  comes out on every host (Go canonicalises `Content-Type`, let-go and bri
+  comes out on every host (Go canonicalises `Content-Type`, other stacks
   lower-case it)."
   [headers]
   (reduce (fn [m [k v]]
@@ -343,10 +341,9 @@
      (fn [req]
        (let [hs   (merge (end-to-end (:headers req)) (end-to-end headers))
              body (:body req)
-             ;; :headers and :body are OMITTED rather than passed empty —
-             ;; let-go's client nil-pointers on an empty-but-present
-             ;; :headers {} (koine.http absorbs it, but not sending a key we
-             ;; have nothing to say with is the cheaper contract).
+             ;; :headers and :body are OMITTED rather than passed empty: not
+             ;; sending a key we have nothing to say with is the cheaper
+             ;; contract, and some clients dislike an empty map.
              base-req {:method (or (:method req) :get)
                        :url (str base (effective-path req))
                        :timeout-ms timeout-ms}

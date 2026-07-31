@@ -16,9 +16,8 @@
 (alias 'codec 'koine.codec)
 (alias 'proc 'koine.process)
 
-;; Byte I/O and byte base64 are not on every host — let-go has neither (see
-;; koine.host). Everything byte-shaped below is gated on the capability, so this
-;; check reports honestly instead of failing a host for a documented gap.
+;; Byte I/O and byte base64 are gated on the capability rather than assumed, so
+;; a host without them skips instead of failing for a documented gap.
 (def bytes? (host/supports? :fs/bytes))
 (def b64-bytes? (host/supports? :codec/base64-bytes))
 
