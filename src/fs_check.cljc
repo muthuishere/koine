@@ -47,6 +47,40 @@
 
 (def tmp-a (fs/temp-dir! "koine-check"))
 (def tmp-b (fs/temp-dir! "koine-check"))
+
+;; --- states this check never used to enter ---
+;;
+;; Every case above sits in a state where a call SUCCEEDS. That is how `alive?`
+;; diverged across hosts for months in koine.process: the tested states were the
+;; ones where both implementations coincide. So these ask what happens when the
+;; answer is no.
+;;
+;; mkdirs! over an existing FILE was a genuine divergence — cljgo threw, the JVM
+;; returned false from `.mkdirs` and koine discarded it, so the call reported
+;; success and created nothing.
+(def mkdirs-over-file
+  (try (fs/mkdirs! (str root "/a.txt")) :no-throw (catch Throwable _ :threw)))
+;; A symlink is read THROUGH on both hosts: a broken one does not exist, a good
+;; one does, and a link to a directory is a directory.
+;;
+;; This lives in its OWN directory, deliberately. Built inside `root` it made
+;; find-files return every file twice — because `list-tree` FOLLOWS a directory
+;; symlink, identically on both hosts. That is worth knowing on its own: it is
+;; why a walk over a tree containing `ln -s ../.. loop` never terminates, and
+;; why koine cannot offer a cycle guard until it can canonicalise a path
+;; (cljgo #172 — `cljg.io/absolute` is filepath.Abs and does not resolve links).
+(def link-root (fs/temp-dir! "koine-links"))
+(def link-probe
+  (do
+    (fs/mkdirs! (str link-root "/d"))
+    (fs/write-file (str link-root "/t.txt") "t")
+    (proc/sh ["sh" "-c" (str "cd " link-root
+                             " && ln -s t.txt goodlink"
+                             " && ln -s nope.txt brokenlink"
+                             " && ln -s d dirlink")])
+    {:good   (fs/exists? (str link-root "/goodlink"))
+     :broken (fs/exists? (str link-root "/brokenlink"))
+     :dir    (fs/directory? (str link-root "/dirlink"))}))
 (def txts (fs/find-files root ".txt"))
 (def skills (fs/find-files root ".skill.md"))
 
@@ -102,7 +136,15 @@
    ;; otherwise silently shares state between two unrelated pieces of work.
    ["temp-exists"   (fs/directory? tmp-a)                       true]
    ["temp-distinct" (= tmp-a tmp-b)                             false]
-   ["temp-empty"    (count (fs/list-tree tmp-a))                1]])   ; the dir itself
+   ["temp-empty"    (count (fs/list-tree tmp-a))                1]    ; the dir itself
+
+   ;; ------------------------------------------------ the unhappy states
+   ;; you asked for a directory and there is a file there: both hosts must say so
+   ["mkdirs-over-file" mkdirs-over-file                         :threw]
+   ;; symlinks are followed, identically, on both hosts
+   ["link-good"     (:good link-probe)                          true]
+   ["link-broken"   (:broken link-probe)                        false]
+   ["link-to-dir"   (:dir link-probe)                           true]])
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))
@@ -112,3 +154,4 @@
 (fs/delete-tree! root)
 (fs/delete-tree! tmp-a)
 (fs/delete-tree! tmp-b)
+(fs/delete-tree! link-root)

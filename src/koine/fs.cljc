@@ -46,12 +46,23 @@
 
 (defn mkdirs!
   "Create directory `path` and every missing parent (`mkdir -p`). Returns
-  `path`. Not an error if it already exists."
+  `path`. Not an error if the directory already exists.
+
+  It IS an error if `path` exists and is not a directory — you asked for a
+  directory and did not get one, and the next write would go somewhere you did
+  not intend. The hosts disagreed here and koine picks the loud answer: cljgo
+  already threw, while the JVM's `.mkdirs` returns false and koine was
+  discarding it, so the call looked like it had succeeded. Found by probing the
+  states `fs_check` never entered, 2026-07-31."
   [path]
-  #?(:clj   (do (.mkdirs (java.io.File. ^String (str path))) (str path))
-     :cljgo (do (cio/mkdirs (str path)) (str path))
-     :default (throw (ex-info "koine.fs/mkdirs!: no implementation for this host; add a branch in koine/fs.cljc"
-                              {:path path}))))
+  (let [p (str path)]
+    (when (and (exists? p) (not (directory? p)))
+      (throw (ex-info (str "koine.fs/mkdirs!: exists and is not a directory: " p)
+                      {:path p})))
+    #?(:clj   (do (.mkdirs (java.io.File. ^String p)) p)
+       :cljgo (do (cio/mkdirs p) p)
+       :default (throw (ex-info "koine.fs/mkdirs!: no implementation for this host; add a branch in koine/fs.cljc"
+                                {:path p})))))
 
 (defn delete!
   "Delete the file or EMPTY directory at `path`. Returns nil. Not an error if

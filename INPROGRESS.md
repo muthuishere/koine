@@ -39,7 +39,7 @@ port reporting them; see below.
 | `./examples/run-both.sh` | both consumer projects agree, on the Clojars artifact |
 
 Conformance per check, both hosts: conformance 9/9 · bytes 17/17 · codec 11/11 ·
-env 12/12 · fs 31/31 · http 9/9 · mcp 5/5 · process 35/35 · route 43/43 ·
+env 12/12 · fs 35/35 · http 9/9 · mcp 5/5 · process 35/35 · route 43/43 ·
 server 10/10 · shadow 1/1 · stream 34/34 · time 28/28.
 
 `clojure -M:test` only proves the JVM. A change is not verified until
@@ -60,7 +60,7 @@ cross-host conformance check.
 | `koine.env` | `env_check` 12/12 |
 | `koine.process` | `process_check` 35/35 + `mcp_check` 5/5 |
 | `koine.http` | `http_check` 9/9 |
-| `koine.fs` | `fs_check` 31/31 + `bytes_check` 17/17 |
+| `koine.fs` | `fs_check` 35/35 + `bytes_check` 17/17 |
 | `koine.codec` | `codec_check` 11/11 |
 | `koine.host` | used by every check to decide what to run |
 
