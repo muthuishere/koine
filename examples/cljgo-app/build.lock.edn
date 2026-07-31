@@ -5,6 +5,7 @@
          :mvn/namespaces {:pure ["koine.codec"
                                  "koine.env"
                                  "koine.fs"
+                                 "koine.host"
                                  "koine.http"
                                  "koine.json"
                                  "koine.process"
@@ -12,13 +13,13 @@
                                  "koine.server"
                                  "koine.stream"
                                  "koine.time"]}
-         :mvn/pom-sha256 "sha256:f25619feee7bec59b363564166cbaac721f6f2dd488add7a24909586e9c6bc21"
+         :mvn/pom-sha256 "sha256:4b8b0689d19eb2500586a4f5fb77d8f8487ed397564f72057d81acd0ac076f20"
          :mvn/repo "https://repo.clojars.org"
-         :mvn/sha256 "sha256:f35e8fb35338474a96eb85cac5c3d274981e106933d556590ac5cf6fcad0f04e"
-         :mvn/version "0.3.0"
+         :mvn/sha256 "sha256:0f80e4d2d555828426e15e411042ba044867ed4846d6bd027cc1bfcd9357cd2e"
+         :mvn/version "0.4.0"
          :name "net.clojars.muthuishere/koine"
          :paths [""]
          :pure? true
          :requires []
-         :tree/hash "sha256:d7c04e93da51c399861e5ab2d0b3aeea68b1a6fac87fb8d9db812e723f3c5a52"}]
+         :tree/hash "sha256:14df0b91440ea551bb194b4af67b5fe3e5f950463e74518659df34b1eae0b338"}]
  :lock/version 1}

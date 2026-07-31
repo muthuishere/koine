@@ -12,6 +12,7 @@
             [demo.app :as app]
             [koine.codec :as codec]
             [koine.fs :as fs]
+            [koine.host :as host]
             [koine.json :as json]
             [koine.process :as proc]
             [koine.time :as t]))
@@ -45,14 +46,19 @@
       (is (integer? (t/parse-iso (:at r)))))))
 
 (deftest bytes-survive-that-text-cannot-carry
-  (fresh!)
-  (let [raw (byte-array [0 1 2 -128 -1 65])
+  ;; let-go has no byte I/O at all (koine.host), so this asserts nothing there
+  ;; rather than failing it for a documented gap. This is the pattern a consumer
+  ;; wants: ask the host, do not catch a throw — the catch itself would need
+  ;; `Throwable` on three hosts and `go/error` on Glojure.
+  (when (host/supports? :fs/bytes)
+   (fresh!)
+   (let [raw (byte-array [0 1 2 -128 -1 65])
         r   (app/record! cfg "raw.bin" raw)]
     (is (= [0 1 2 -128 -1 65] (vec (fs/read-bytes (:path r)))))
     (testing "signed elements — identical on both hosts"
       (is (= -128 (nth (vec (fs/read-bytes (:path r))) 3))))
     (testing "base64 round trip returns the same bytes"
-      (is (= [0 1 2 -128 -1 65] (vec (codec/decode-bytes (:base64 r))))))))
+      (is (= [0 1 2 -128 -1 65] (vec (codec/decode-bytes (:base64 r)))))))))
 
 (deftest artifacts-are-sorted-and-filtered
   (fresh!)
@@ -67,7 +73,8 @@
 ;; ----------------------------------------------------------- subprocess
 
 (deftest rpc-client-holds-a-multi-turn-conversation
-  (testing "the property a run-to-completion `sh` cannot express"
+  (when (host/supports? :process/spawn)
+   (testing "the property a run-to-completion `sh` cannot express"
     (let [{:keys [call stop]} (app/rpc-client ["cat"])
           a (call "ping" {:seq 1})
           b (call "ping" {:seq 2})]
@@ -75,16 +82,17 @@
       (is (= 2 (:id b)))                       ; the child was still alive
       (is (= "ping" (:method a)))
       (is (= {:seq 2} (:params b)))
-      (is (= 0 (stop))))))
+      (is (= 0 (stop)))))))
 
 (deftest json-survives-the-round-trip-through-the-child
-  (let [{:keys [call stop]} (app/rpc-client ["cat"])
+  (when (host/supports? :process/spawn)
+   (let [{:keys [call stop]} (app/rpc-client ["cat"])
         payload {:text "café ☃" :nested {:xs [1 2.5 nil true]}}
         back    (call "echo" payload)]
     (stop)
     (is (= payload (:params back)))
     (testing "2.5 stays a float and nil stays null"
-      (is (= [1 2.5 nil true] (get-in back [:params :nested :xs]))))))
+      (is (= [1 2.5 nil true] (get-in back [:params :nested :xs])))))))
 
 ;; ----------------------------------------------------------------- time
 
@@ -103,8 +111,15 @@
       (is (not (contains? (:config out) :token))))
     (is (= 9 (get-in out [:receipt :size])))
     (is (seq (:artifacts out)))
-    (is (= 2 (count (:echo out))))
-    (is (integer? (:echo-ms out)))))
+    (testing "the exchange happened either way — over a live child where the
+    host has one, over `sh` where it does not"
+      (is (= (if (host/supports? :process/spawn) 2 1) (count (:echo out))))
+      (is (= "ping" (:method (first (:echo out)))))
+      (is (= (host/supports? :process/spawn) (:streamed? out))))
+    (testing "the host names itself in its own output"
+      (is (= (name host/id) (:host out))))
+    (when (:streamed? out)
+      (is (integer? (:echo-ms out))))))
 
 (deftest run-output-is-json-encodable
   (testing "sorted keys, so both hosts emit byte-identical JSON"

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <packaging>jar</packaging>
+  <groupId>net.clojars.muthuishere</groupId>
+  <artifactId>koine</artifactId>
+  <version>0.4.0</version>
+  <name>koine</name>
+  <dependencies>
+    <dependency>
+      <groupId>org.clojure</groupId>
+      <artifactId>clojure</artifactId>
+      <version>1.12.5</version>
+    </dependency>
+  </dependencies>
+  <build>
+    <sourceDirectory>src</sourceDirectory>
+  </build>
+  <repositories>
+    <repository>
+      <id>clojars</id>
+      <url>https://repo.clojars.org/</url>
+    </repository>
+  </repositories>
+  <description>One tiny seam over the host, so the same .cljc runs on Clojure (JVM) and cljgo.</description>
+  <url>https://github.com/muthuishere/koine</url>
+  <licenses>
+    <license>
+      <name>MIT</name>
+      <url>https://opensource.org/license/mit</url>
+    </license>
+  </licenses>
+  <scm>
+    <url>https://github.com/muthuishere/koine</url>
+    <connection>scm:git:https://github.com/muthuishere/koine.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/muthuishere/koine.git</developerConnection>
+    <tag>a4b85a6ead0e68625b123006150d83a77c98c63d</tag>
+  </scm>
+  <developers>
+    <developer>
+      <name>Muthukumaran Navaneethakrishnan</name>
+    </developer>
+  </developers>
+</project>

@@ -1,0 +1,13 @@
+;; main.cljg — the Glojure entry point.
+;;
+;; Glojure has no `-main` convention and no test runner, so this file does both
+;; jobs: it loads the SHARED demo.app (a symlink to the Clojure project's .cljc,
+;; so there is one copy of the source) and runs the SHARED suite through
+;; clojure.test, then exits non-zero if anything failed.
+(require 'demo.app 'demo.app-test 'clojure.test)
+
+(println (demo.app/-main))
+(let [summary (clojure.test/run-tests 'demo.app-test)]
+  (println summary)
+  (when (or (pos? (:fail summary)) (pos? (:error summary)))
+    (os.Exit 1)))

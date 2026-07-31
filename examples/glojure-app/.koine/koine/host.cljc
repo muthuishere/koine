@@ -29,17 +29,11 @@
      :default :unknown))
 
 (def tier
-  ;; ASCII only, deliberately: cljgo's AOT emitter truncates its form-preview
-  ;; comment at ~90 BYTES rather than runes, so a multi-byte character landing on
-  ;; that boundary is cut in half and the generated Go stops being valid UTF-8
-  ;; ("emit: 73:92: illegal UTF-8 encoding"). An em dash here made this namespace
-  ;; compile-fail while running fine interpreted. Filed as the ADR 0110 addendum;
-  ;; until it lands, prose in THIS file avoids non-ASCII near the start of a form.
   "koine's support tier for this host (README):
 
-    :supported    JVM, cljgo - a gap blocks a release
-    :nice-to-have Glojure    - implemented where straightforward
-    :best-effort  let-go     - kept green, never gates a release"
+    :supported    JVM, cljgo — a gap blocks a release
+    :nice-to-have Glojure    — implemented where straightforward
+    :best-effort  let-go     — kept green, never gates a release"
   #?(:clj   :supported
      :cljgo :supported
      :glj   :nice-to-have
