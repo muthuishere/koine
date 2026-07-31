@@ -6,8 +6,7 @@
             [koine.host :as host]))
 
 (deftest identifies-this-host
-  (is (= :jvm host/id))
-  (is (= :supported host/tier)))
+  (is (= :jvm host/id)))
 
 (deftest the-jvm-supports-everything
   (doseq [c [:json/read-write :env/get-env :time/clock :time/iso :fs/text

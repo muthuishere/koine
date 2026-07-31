@@ -5,7 +5,7 @@
   SPEC §7B/§7C): a request comes in on ONE path, a string body goes in, a
   string body comes out. There is no routing table, no middleware, no
   static files, no websockets, no TLS — every one of those multiplies the
-  surface that has to agree across four hosts, and none of them is needed.
+  surface that has to agree across both hosts, and none of them is needed.
 
       (def h (server/serve (fn [req] {:status 200 :body (:body req)})
                            {:port 0}))
@@ -34,7 +34,7 @@
   #?(:cljgo (:require [bri.web.http :as bri])))
 
 ;; ---------------------------------------------------------------- shared
-;; Everything below the seam is plain clojure.core so the four host
+;; Everything below the seam is plain clojure.core so the two host
 ;; branches only ever contain the socket work, never the shaping.
 
 (defn- lower [s] (str/lower-case (str s)))
@@ -77,8 +77,8 @@
 
   Returns an opaque handle for `port` and `stop!`.
 
-  The default `:path` of \"/\" is a prefix/catch-all on all four hosts and is
-  the only value that behaves identically everywhere — some hosts' `serve`
+  The default `:path` of \"/\" is a prefix/catch-all on both hosts and is
+  the only value that behaves identically everywhere — cljgo's `serve`
   takes no pattern at all, so a non-\"/\" path is NOT enforced there. The
   handler always receives `:path`, so filter in the handler if it matters."
   [handler {:keys [port host path] :or {port 0 host "127.0.0.1" path "/"}}]

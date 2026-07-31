@@ -26,10 +26,9 @@ Greeks understand each other. That is the whole job.
 | Clojure (JVM) | `:clj` | every capability, or it does not ship |
 | cljgo | `:cljgo` | every capability, or it does not ship |
 
-Both are supported outright — a gap on either blocks a release. koine carried
-two more runtimes as lower tiers until 2026-07-31 and removed them: an
-unpromised host still costs every branch, every docstring and every conformance
-row, and a green check on a runtime nobody ships to does not pay for that.
+Both are supported outright — a gap on either blocks a release. There are no
+lower tiers and no "informational" hosts: a runtime koine does not promise would
+still cost every branch, every docstring and every conformance row.
 
 The reason koine exists at all: **the pure-Clojure ecosystem is empty, not
 thin.** Eleven popular libraries were scanned — `data.json`, `edamame`,
@@ -57,7 +56,7 @@ Read this before adding anything.
   is.
 - **Not ClojureScript / `:cljr` / `:bb` / jank.** Out of scope. ClojureScript
   cannot spawn a subprocess, which rules out roughly half of what consumers need.
-- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.4.1
+- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.5.0
   at the time of writing) with the API explicitly marked unstable; `koine.route`
   and `koine.server` are the most likely to move. See `INPROGRESS.md`.
 
@@ -66,7 +65,7 @@ Read this before adding anything.
 | Path | What |
 |---|---|
 | `src/koine/*.cljc` | The library. One namespace per capability. |
-| `src/koine/host.cljc` | Which host, which tier, and `supports?` — how a caller degrades WITHOUT a host-specific `catch`. |
+| `src/koine/host.cljc` | Which host, what it can do, and `supports?` — how a caller degrades WITHOUT a host-specific `catch`. |
 | `examples/` | Two consumer projects (JVM, cljgo) on the published Clojars artifact, one shared source, `./examples/run-both.sh`. |
 | `src/conformance.cljc`, `src/*_check.cljc` | Host-parameterised conformance checks — run on **every** installed runtime. This is the real test suite. |
 | `test/koine/*_test.cljc` | `clojure.test` suites. **JVM only.** |
@@ -98,7 +97,7 @@ Read this before adding anything.
 ## Commands
 
 ```bash
-clojure -M:test          # JVM clojure.test suite (104 tests / 359 assertions)
+clojure -M:test          # JVM clojure.test suite (109 tests / 372 assertions)
 ./run-conformance.sh     # every check on every installed host — the real gate
 ./examples/run-both.sh   # the published artifact, consumed on both hosts
 ```
@@ -115,7 +114,7 @@ Note `clojure -M:test` only proves the JVM. **A change is not verified until
 ## When the bug is the host's, fix the host
 
 **A defect that genuinely belongs to cljgo gets FIXED IN CLJGO, not worked around
-here.** cljgo is ours (`../cljgo`, `muthuishere/cljgo`), it is a tier-1 host, and
+here.** cljgo is ours (`../cljgo`, `muthuishere/cljgo`), it is a supported host, and
 koine is usually the first real consumer to hit anything — so a workaround in
 koine hides a bug every other cljgo user will meet later, and leaves koine
 carrying the scar tissue forever.

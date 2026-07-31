@@ -17,11 +17,11 @@ Clojars** and run **the same source and the same tests** on both runtimes.
 
 ```
 clojure-app/         the Clojure (JVM) project - and the ONE copy of the source
-  deps.edn           koine {:mvn/version "0.4.1"} from Clojars
+  deps.edn           koine {:mvn/version "0.5.0"} from Clojars
   src/demo/app.cljc        the app
   test/demo/app_test.cljc  the suite
 cljgo-app/           the cljgo project
-  build.cljgo        (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.1"})
+  build.cljgo        (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.5.0"})
   src/demo/app.cljc        -> ../clojure-app/src/demo/app.cljc
   test/demo/app_test.cljc  -> ../clojure-app/test/demo/app_test.cljc
 ```

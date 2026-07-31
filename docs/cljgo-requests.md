@@ -45,7 +45,7 @@
 > host results on a nil-tolerant path. Also: `lang.Char` does not coerce to Go
 > `byte` — pass the integer (`10`, not `(char 10)`).
 
-cljgo is a **tier-1** host: a gap here blocks a koine release. Everything below
+cljgo is a **supported** host: a gap here blocks a koine release. Everything below
 was measured on 2026-07-27 against cljgo 0.1.0-dev (both the installed binary
 and the in-repo one), and each item says exactly what unblocks.
 
@@ -169,8 +169,8 @@ callback per line:
 (cljg.net.http/request-stream opts (fn [line] …))
 ```
 
-**Unblocks:** `koine.stream/sse-post`, which works on JVM, Glojure and let-go
-and throws a named error on cljgo. Without it, cljgo cannot consume streaming
+**Unblocks:** `koine.stream/sse-post`, which works on the JVM and throws a
+named error on cljgo. Without it, cljgo cannot consume streaming
 LLM responses (toolnexus §8 streaming).
 
 ---

@@ -34,8 +34,7 @@ say "diff (the two hosts must match)"
 norm () { sed -E -e 's#/tmp/koine-demo-[a-z]+#WORKDIR#g' \
                  -e 's#"at":"[^"]*"#"at":"AT"#' \
                  -e 's#"echo-ms":[0-9]+#"echo-ms":MS#' \
-                 -e 's#"host":"[a-z-]+"#"host":"HOST"#' \
-                 -e 's#"tier":"[a-z-]+"#"tier":"TIER"#' <<<"$1"; }
+                 -e 's#"host":"[a-z-]+"#"host":"HOST"#' <<<"$1"; }
 if [ "$(norm "$jvm")" = "$(norm "$go")" ]; then
   printf '\033[32mjvm == cljgo\033[0m (modulo workdir, timestamp, duration, host name)\n'
 else

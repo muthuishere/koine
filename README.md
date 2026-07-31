@@ -66,7 +66,7 @@ portable API, and let everything above it be plain Clojure.
 | `koine.fs` | `exists?` `directory?` `list-tree` `find-files` `read-bytes` `write-bytes` | `java.io.File` · `java.nio` · `cljg.io` |
 | `koine.time` | `now-ms` `mono-ms` `sleep!` `iso-str` `parse-iso` | `System/nanoTime` · `cljg.date` · pure ISO |
 | `koine.codec` | `encode` / `decode` / `decode-bytes` (base64) | `java.util.Base64` · `cljg.security` |
-| `koine.host` | `id` / `tier` / `supports?` | pure — what THIS host can do, so a caller can degrade without a `catch` |
+| `koine.host` | `id` / `capabilities` / `supports?` | pure — what THIS host can do, so a caller can degrade without a `catch` |
 
 Reader features, confirmed from each implementation's source: `:clj` and
 `:cljgo` (cljgo ADR 0036).
@@ -136,7 +136,7 @@ function replacement. Every one is implemented, conformance-tested on both
 supported hosts, and verified in an AOT binary.
 
 That is the pattern to expect: koine files the need upstream and waits, rather
-than shipping a branch that throws on a tier-1 host. What remains:
+than shipping a branch that throws on a supported host. What remains:
 
 - **No pattern-based date formatting**, deliberately. `koine.time/iso-str` and
   `parse-iso` cover the wire format; a `format` taking a pattern would have to
@@ -165,17 +165,17 @@ it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.4.2"}
+net.clojars.muthuishere/koine {:mvn/version "0.5.0"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.2"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.5.0"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
-**The API is unstable at `0.4.2`.** `koine.process`, `koine.route` and
+**The API is unstable at `0.5.0`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env`,
 `koine.time`, `koine.fs` and `koine.codec` are settled.
 

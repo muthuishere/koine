@@ -4,7 +4,7 @@
   There is deliberately no `compile-clj` step. koine's whole premise is that
   consumers read the `.cljc` and their own host resolves the reader conditionals;
   AOT-compiling it here would bake JVM class files into a library whose reason to
-  exist is that it also loads on cljgo, Glojure and let-go.
+  exist is that it also loads on cljgo.
 
   Usage:
     clojure -T:build jar                 ; target/koine-<v>.jar + pom
@@ -22,7 +22,7 @@
 ;; GitHub verification the group has not been through (a 403 "Group
 ;; 'io.github.muthuishere' doesn't exist" on deploy, 2026-07-30).
 (def lib 'net.clojars.muthuishere/koine)
-(def version "0.4.2")
+(def version "0.5.0")
 (def class-dir "target/classes")
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
 

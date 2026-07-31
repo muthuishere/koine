@@ -35,10 +35,11 @@
   the text route would corrupt it. The receipt carries a base64 copy — the same
   encoding MCP uses for binary content — plus an ISO-8601 stamp.
 
-  On a host with no byte I/O (let-go) this falls back to the TEXT route and says
-  so in the receipt. That is a decision this app makes because its payloads are
-  small and known-textual; `koine.host/supports?` is what makes the decision
-  possible without a reader conditional or a host-specific catch."
+  On a host with no byte I/O this falls back to the TEXT route and says so in
+  the receipt. Both hosts koine targets have bytes, so that branch is not taken
+  today — it is here because it is how a consumer degrades honestly:
+  `koine.host/supports?` makes the decision possible without a reader
+  conditional or a host-specific catch."
   [{:keys [workdir]} name payload]
   (let [path  (str workdir "/" name)
         bytes? (host/supports? :fs/bytes)]
@@ -119,7 +120,6 @@
                                  (stop)
                                  [r s])))))]
       {:host      (name host/id)
-       :tier      (name host/tier)
        :config    (dissoc cfg :token)
        :receipt   receipt
        :artifacts (artifacts cfg)

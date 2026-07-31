@@ -46,10 +46,9 @@
       (is (integer? (t/parse-iso (:at r)))))))
 
 (deftest bytes-survive-that-text-cannot-carry
-  ;; let-go has no byte I/O at all (koine.host), so this asserts nothing there
-  ;; rather than failing it for a documented gap. This is the pattern a consumer
-  ;; wants: ask the host, do not catch a throw — the catch itself would need
-  ;; `Throwable` on three hosts and `go/error` on Glojure.
+  ;; Both hosts have byte I/O, so this always runs — the `supports?` guard is
+  ;; the pattern a consumer wants for a capability that might be absent: ask the
+  ;; host, do not catch a throw, since the catch itself is host-specific code.
   (when (host/supports? :fs/bytes)
    (fresh!)
    (let [raw (byte-array [0 1 2 -128 -1 65])

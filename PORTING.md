@@ -3,11 +3,9 @@
 ## The two hosts
 
 **Clojure (JVM)** and **cljgo**, both supported outright. A gap on either blocks
-a release; there are no lower tiers and no "informational" hosts. koine tried
-that — two extra runtimes carried as tier 2/3 — and dropped them on 2026-07-31,
-because a host you do not promise still costs every branch, every docstring and
-every conformance row, and a green check on a runtime nobody ships to is not
-signal worth that price.
+a release; there are no lower tiers and no "informational" hosts, because a host
+koine does not promise would still cost every branch, every docstring and every
+conformance row.
 
 Run everything with `./run-conformance.sh`. A change is not verified until it is
 green on both.
@@ -28,6 +26,36 @@ green on both.
 
 ## Traps — every one of these cost real debugging time
 
+1. **Comparing functions is not portable.** Apply one; never compare one.
+2. **`^:dynamic` is not honoured everywhere.** Thread the parameter through — it
+   is also less code (`koine.json`'s `key-fn` is the example).
+3. **Go's `os.Getenv` returns `""` where the JVM returns `nil`**, and `""` is
+   truthy, so `(or (get-env x) default)` silently never falls back. `koine.env`
+   normalises empty to nil.
+4. **A shared name is not a portable function** — `file-seq` takes a
+   `java.io.File` on the JVM and a string path on cljgo.
+5. **Map print order differs per host**, so any assertion over `pr-str` of a map
+   is a false failure waiting to happen. It is also why the JSON encoder sorts
+   keys.
+6. **cljgo's AOT discovery pass substitutes `nil` for every host result**, so a
+   nil-intolerant pure function applied to a host value fails at *build* time,
+   not run time. This is the usual source of "works in `cljgo run`, fails in
+   `cljgo build`".
+7. **`lang.Char` does not coerce to Go `byte`** — pass the integer.
+8. **Do not put a protocol in the API.** A host can ship `defprotocol` without
+   `reify`/`deftype`/`defrecord`, leaving it declarable and never implementable.
+   Return a map of closures — that is why `koine.process`'s child handle is one.
+9. **Go's `byte` is unsigned**, so a byte is 128/255 there where the JVM gives
+   -128/-1. koine normalises to the JVM contract at the boundary; `bytes_check`
+   asserts it.
+10. **Setting a host struct's fields may be rejected**, so `:dir`/`:env` ride an
+    `sh -c` wrapper rather than assignment.
+11. **A var that RESOLVES may still be unbound** ("cannot call nil"), so
+    `(resolve 'x)` is not a capability probe.
+12. **A capability probe must not be a `try`/`catch`** — the catch symbol is not
+    the same on both hosts, so the probe becomes host-specific code. Ask
+    `koine.host/supports?` instead.
+
 ## Verified core parity
 
 These resolve and behave identically on both hosts, so use them freely and
@@ -40,16 +68,21 @@ keys, `re-find`, `(char 0)`, `merge` with nil, `every?`/`some?`/`contains?`, and
 `clojure.string`'s `includes?` `ends-with?` `starts-with?` `index-of`
 `last-index-of` `split` `replace` `blank?`.
 
-Go-method interop of the form `(.UnixMilli t)` / `(.Milliseconds d)` also works
-uniformly on the Go-hosted dialects.
-
 A top-level reader conditional with **no branch for the current host reads as
-nothing** on all four — so `#?(:cljgo (require '[cljg.os]))` is a safe way to pay
-a host-specific require cost only where it applies.
+nothing** on both — so `#?(:cljgo (require '[cljg.process]))` is a safe way to
+pay a host-specific require cost only where it applies.
 
 `random-uuid` in particular means **id generation needs no seam**.
 
 ## Known gaps (throw a named error; do not fake these)
+
+- **Pattern-based date formatting.** Go layouts (`2006-01-02`) and java.time
+  patterns (`yyyy-MM-dd`) are different languages, and koine will not fake a
+  translation. `koine.time/iso-str` / `parse-iso` cover the wire format, which
+  is what protocols actually carry.
+- **Anything needing a third-party dependency.** `deps.edn` carries
+  `org.clojure/clojure` and nothing else; one Java-carrying dep would make koine
+  JVM-only and destroy its reason to exist.
 
 ## On cljgo, assert on OUTPUT — never on the exit code
 

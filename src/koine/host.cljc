@@ -25,27 +25,19 @@
      :cljgo :cljgo
      :default :unknown))
 
-(def tier
+(def capabilities
   ;; ASCII only, deliberately: cljgo's AOT emitter truncates its form-preview
   ;; comment at ~90 BYTES rather than runes, so a multi-byte character landing on
   ;; that boundary is cut in half and the generated Go stops being valid UTF-8
   ;; ("emit: 73:92: illegal UTF-8 encoding"). An em dash here made this namespace
-  ;; compile-fail while running fine interpreted. Filed as the ADR 0110 addendum;
-  ;; until it lands, prose in THIS file avoids non-ASCII near the start of a form.
-  "koine's support tier for this host: :supported on JVM and cljgo, which are
-  the only two koine targets. A gap on either blocks a release."
-  #?(:clj   :supported
-     :cljgo :supported
-     :default :unknown))
-
-(def capabilities
+  ;; compile-fail while running fine interpreted. Fixed upstream in cljgo, but
+  ;; prose in THIS file still avoids non-ASCII near the start of a form.
   "Everything this host can do, as a set.
 
-  Both supported hosts implement everything today, so this is currently a
-  constant — and it is kept anyway, because it is the honest way to ADD a host:
-  a new runtime declares what it has, and callers that already branch on
-  `supports?` degrade without a line of change. It also survived the two hosts
-  koine dropped, whose gaps it described exactly."
+  Both hosts implement everything today, so this is currently a constant - and
+  it is kept anyway, because it is the honest way to ADD a host: a new runtime
+  declares what it has, and callers that already branch on `supports?` degrade
+  without a line of change."
   #?(:clj   #{:json/read-write :env/get-env :time/clock :time/iso
               :fs/text :fs/bytes :codec/base64-string :codec/base64-bytes
               :process/sh :process/spawn :process/stderr-capture

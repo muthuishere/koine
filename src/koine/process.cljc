@@ -13,7 +13,7 @@
 ;; pays for this (same pattern as koine.time).
 #?(:cljgo (require '[cljg.process] '[cljg.stream]))
 
-;; ------------------------------------------- helpers for the Go-hosted tiers
+;; ------------------------------------------------- helpers for the Go host
 ;;
 ;; :dir and :env are applied by wrapping the command in `sh -c` on hosts that
 ;; cannot set them on the child directly, so the quoting helper below is shared
