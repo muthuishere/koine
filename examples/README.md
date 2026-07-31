@@ -32,8 +32,8 @@ clojure-app/         the Clojure (JVM) project - and the ONE copy of the source
   test/demo/app_test.cljc  the suite
 cljgo-app/           the cljgo project
   build.cljgo        (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.1"})
-  src/demo/app.cljg        -> ../clojure-app/src/demo/app.cljc
-  test/demo/app_test.cljg  -> ../clojure-app/test/demo/app_test.cljc
+  src/demo/app.cljc        -> ../clojure-app/src/demo/app.cljc
+  test/demo/app_test.cljc  -> ../clojure-app/test/demo/app_test.cljc
 glojure-app/         the Glojure project
   run.sh             unpacks the SAME Clojars jar onto GLJ_CLASSPATH
   src/demo/main.cljg       the entry point (Glojure has no -main convention)
@@ -51,12 +51,14 @@ are the same bytes — they are real consumers of the release, not a shortcut
 pointing at `../../src`.
 
 The symlinks are the honest version of "one source": there is no second copy to
-drift, and the cljgo project reads the exact bytes the JVM project does. They
-exist only because `cljgo test` walks `src/`/`test/` for `.clj` and `.cljg` and
-**silently skips `.cljc`** — it reports "Ran 0 tests … 0 failures" and exits 0,
-which reads as a green suite. (`require` handles `.cljc` fine; `load-file`
-resolves but is unbound, so it is not an alternative.) Filed upstream; when the
-walk learns `.cljc`, delete the two symlinks and nothing else changes.
+drift, and every project reads the exact bytes the Clojure project does.
+
+They were briefly worse than that. `cljgo test` used to walk `src/`/`test/` for
+`.clj` and `.cljg` only and **silently skip `.cljc`** — reporting "Ran 0 tests …
+0 failures" and exiting 0, which reads as a green suite rather than one that
+never ran — so the cljgo project had to symlink `app.cljg -> app.cljc` to be
+seen at all. That is fixed upstream now (cljgo `sourceFiles`, with a test), and
+these are plain `.cljc` symlinks again. Requires a cljgo carrying that fix.
 
 ## Run them individually
 

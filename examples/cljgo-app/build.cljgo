@@ -11,6 +11,6 @@
 ;; machine-checked at dependency time.
 (defn build [b]
   (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.1"})
-  (let [app (exe b {:name "demo" :main "src/demo/app.cljg"})]
+  (let [app (exe b {:name "demo" :main "src/demo/app.cljc"})]
     (install b app)
     (run b app)))
