@@ -3,3 +3,7 @@ target/
 .nrepl-port
 *.jar
 .DS_Store
+
+# example build outputs (the native binary — build.lock.edn IS committed, it
+# pins the resolved dependency and is what makes the example reproducible)
+examples/cljgo-app/demo

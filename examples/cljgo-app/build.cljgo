@@ -1,0 +1,16 @@
+;; build.cljgo — the cljgo example.
+;;
+;;   cljgo build        resolve deps, compile to a native binary
+;;   cljgo build run    …and run it
+;;   cljgo test         run the suite (needs one `cljgo build` first, to resolve)
+;;
+;; koine comes from CLOJARS — literally the same artifact and version the
+;; Clojure project resolves. cljgo grew Maven resolution in ADR 0095, so there
+;; is no git coordinate and no vendored copy here. The resolve report prints
+;; "10 namespace(s) with no Java interop", which is koine's whole claim being
+;; machine-checked at dependency time.
+(defn build [b]
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.3.0"})
+  (let [app (exe b {:name "demo" :main "src/demo/app.cljg"})]
+    (install b app)
+    (run b app)))

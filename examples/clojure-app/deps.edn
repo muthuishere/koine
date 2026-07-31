@@ -1,0 +1,16 @@
+;; deps.edn — the Clojure (JVM) example.
+;;
+;;   clojure -M:test            run the suite
+;;   clojure -M -m demo.app     run the app, prints JSON
+;;
+;; koine comes from CLOJARS. Note what is NOT here: no other third-party
+;; dependency. The app does HTTP, subprocesses, files, bytes, base64, env and
+;; JSON with koine alone.
+{:paths ["src"]
+ :deps  {org.clojure/clojure           {:mvn/version "1.12.5"}
+         net.clojars.muthuishere/koine {:mvn/version "0.3.0"}}
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}}}

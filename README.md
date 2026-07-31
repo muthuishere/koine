@@ -192,6 +192,25 @@ shadowed `clojure.core/proxy`, which made the whole namespace unloadable on
 cljgo (its Java-interop gate reads the bare symbol as the JVM class-definition
 special form). If you were on `0.2.0`, that is the one call to change.
 
+## Examples
+
+Two real projects — one Clojure (JVM), one cljgo — consuming koine **from
+Clojars** and running the **same source and the same tests** on both hosts:
+
+```bash
+./examples/run-both.sh
+```
+
+```
+== Clojure (JVM) — tests      Ran 9 tests containing 31 assertions. 0 failures
+== cljgo — tests              Ran 9 tests containing 31 assertions. 0 failures
+== diff                       identical (modulo workdir, timestamp, duration)
+```
+
+`examples/clojure-app/src/demo/app.cljc` has no reader conditional, no `java.`
+anything and no Go interop — it does HTTP, subprocesses, bytes, base64, env,
+time and JSON through koine alone. See `examples/README.md`.
+
 ## Test
 
 ```bash
