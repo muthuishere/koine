@@ -54,18 +54,26 @@
             io/os/unix reads a file into a byte-array), no base64 over bytes
             (io/encode base64s the PRINTED form of a byte-array — silently
             wrong, so koine refuses it), and no streaming child (os/exec hands
-            back an *exec.Cmd whose pipes are unreachable from Clojure)."
+            back an *exec.Cmd whose pipes are unreachable from Clojure), and no
+            request timeout (a hung server hangs the caller).
+    glj     has everything EXCEPT a request timeout, for a different reason:
+            setting net/http.Client's Timeout means assigning a struct field,
+            which Glojure refuses."
   (let [all #{:json/read-write :env/get-env :time/clock :time/iso
               :fs/text :fs/bytes :codec/base64-string :codec/base64-bytes
-              :process/sh :process/spawn :http/request :stream/sse
-              :route/router :server/serve}]
+              :process/sh :process/spawn :http/request :http/timeout
+              :stream/sse :route/router :server/serve}]
     #?(:clj   all
        :cljgo all
-       :glj   all
+       ;; :http/timeout is absent on Glojure: bounding a request needs a
+       ;; net/http.Client with its Timeout field set, and Glojure rejects struct
+       ;; field assignment outright, so a hung server hangs the caller forever.
+       ;; Measured 2026-07-31. A retry policy must not assume a deadline here.
+       :glj   (disj all :http/timeout)
        ;; `disj`, not clojure.set/difference: Glojure has no clojure.set at all
        ;; ("failed to load /clojure/set: not found in load path"), and this file
        ;; must load on every host — it is the one that says what a host can do.
-       :lg    (disj all :fs/bytes :codec/base64-bytes :process/spawn)
+       :lg    (disj all :fs/bytes :codec/base64-bytes :process/spawn :http/timeout)
        :default #{})))
 
 (defn supports?

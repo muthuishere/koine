@@ -63,9 +63,10 @@
     (is (= "up" (:body (http/post-json url {} ""))))
     (is (nil? (server/stop! h)))
     (is (nil? (server/stop! h)) "stop! must be idempotent — teardown is unconditional")
-    (is (= :refused
-           (try (do (http/post-json url {} "") :still-up)
-                (catch Exception _ :refused)))
+    ;; koine.http returns a transport failure as DATA now (never throws), so the
+    ;; assertion reads the classified error rather than catching — which is also
+    ;; the portable spelling, since the catch symbol differs per host.
+    (is (= :connect-failed (:error (http/post-json url {} "")))
         "the socket must actually be gone after stop!")))
 
 (deftest handler-exception-becomes-a-500

@@ -97,7 +97,27 @@
         (is (= 204 (:status res)))
         (is (= "" (:body res)))))))
 
-(deftest a-connection-failure-throws
-  (testing "an unroutable port is an exception, not a fabricated status"
-    (is (thrown? Exception
-                 (http/request {:url "http://127.0.0.1:1/mcp" :timeout-ms 2000})))))
+(deftest a-transport-failure-is-data-not-an-exception
+  (testing "an unroutable port returns a classified failure, never a fabricated status"
+    (let [res (http/request {:url "http://127.0.0.1:1/mcp" :timeout-ms 2000})]
+      (is (nil? (:status res)))
+      (is (= :connect-failed (:error res)))
+      (is (string? (:error-message res)))
+      (is (= "http://127.0.0.1:1/mcp" (:url res)))
+      (is (http/failed? res)))))
+
+(deftest a-bad-hostname-classifies-as-dns
+  (testing "not :connect-failed — the JVM buries UnresolvedAddressException under
+  a message-less ConnectException while cljgo says 'no such host'; koine
+  normalises both so a retry policy can skip what will never resolve"
+    (let [res (http/request {:url "http://nonexistent.invalid/x" :timeout-ms 3000})]
+      (is (= :dns (:error res))))))
+
+(deftest a-real-response-is-not-failed
+  (with-server (fn [_] {:status 500 :body "boom"})
+    (fn [url]
+      (let [res (http/request {:url (str url "/mcp")})]
+        (testing "a 500 is an ANSWER, not a transport failure"
+          (is (= 500 (:status res)))
+          (is (not (http/failed? res)))
+          (is (nil? (:error res))))))))

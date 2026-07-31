@@ -71,6 +71,13 @@
 ;; 12000 bytes on one line — a rune is guaranteed to straddle a read boundary.
 (def wide   (when (:ok? main) (collect "/utf8" {})))
 
+;; TORN FRAMES — every event written in two flushes with a gap between them, so
+;; the client is FORCED to read again mid-line. One event is torn inside a
+;; 2-byte rune. A parser that treats end-of-read as end-of-line passes every
+;; other endpoint here and emits garbage for these three.
+(def torn   (when (:ok? main) (collect "/split" {})))
+(def torn-data (mapv second (:events torn)))
+
 (def want-data
   ["{\"delta\":\"tok0\"}" "{\"delta\":\"tok1\"}" "{\"delta\":\"tok2\"}" "[DONE]"])
 
@@ -96,7 +103,15 @@
                        (cstr/includes? (:msg main) "no implementation for this host"))
       true]]))
 
-(def cases (concat pure-cases stream-cases))
+(def torn-cases
+  [["torn: line rejoined across two reads"  (nth torn-data 0 nil) "hello world"]
+   ["torn: rune rejoined across two reads"  (nth torn-data 1 nil) "café ok"]
+   ["torn: terminator in the second read"   (nth torn-data 2 nil) "tail"]
+   ["torn: exactly 4 events, none split"    (count torn-data)     4]
+   ["torn: [DONE] still last"               (last torn-data)      "[DONE]"]])
+
+;; Torn frames only mean anything on a host that streams at all.
+(def cases (concat pure-cases stream-cases (when (:ok? main) torn-cases)))
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails]
