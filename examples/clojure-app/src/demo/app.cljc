@@ -11,6 +11,7 @@
   (:require [koine.codec :as codec]
             [koine.env :as env]
             [koine.fs :as fs]
+            [koine.host :as host]
             [koine.json :as json]
             [koine.process :as proc]
             [koine.time :as t]))
@@ -30,17 +31,36 @@
 (defn record!
   "Write `bytes-or-string` under the workdir as `name`, and return a receipt.
 
-  Bytes, not text: an artifact may be an image or a gzip blob, and the text
-  route would corrupt it. The receipt carries a base64 copy — the same encoding
-  MCP uses for binary content — plus an ISO-8601 stamp."
+  Bytes where the host has them: an artifact may be an image or a gzip blob, and
+  the text route would corrupt it. The receipt carries a base64 copy — the same
+  encoding MCP uses for binary content — plus an ISO-8601 stamp.
+
+  On a host with no byte I/O (let-go) this falls back to the TEXT route and says
+  so in the receipt. That is a decision this app makes because its payloads are
+  small and known-textual; `koine.host/supports?` is what makes the decision
+  possible without a reader conditional or a host-specific catch."
   [{:keys [workdir]} name payload]
-  (let [path (str workdir "/" name)
-        bs   (if (string? payload) (codec/decode-bytes (codec/encode payload)) payload)]
-    (fs/write-bytes path bs)
-    {:path    path
-     :size    (count (vec (fs/read-bytes path)))
-     :base64  (codec/encode (fs/read-bytes path))
-     :at      (t/iso-str)}))
+  (let [path  (str workdir "/" name)
+        bytes? (host/supports? :fs/bytes)]
+    (if bytes?
+      (let [bs (if (string? payload) (codec/decode-bytes (codec/encode payload)) payload)]
+        (fs/write-bytes path bs)
+        {:path path
+         :size (count (vec (fs/read-bytes path)))
+         :base64 (codec/encode (fs/read-bytes path))
+         :at (t/iso-str)
+         :binary? true})
+      (do
+        (fs/write-file path (str payload))
+        {:path path
+         ;; count the UTF-8 bytes without a byte route: base64 of n bytes is
+         ;; 4*ceil(n/3) chars, so the padding gives the length back exactly.
+         :size (let [b64 (codec/encode (fs/read-file path))
+                     pad (count (filter (fn [c] (= c \=)) b64))]
+                 (- (* 3 (quot (count b64) 4)) pad))
+         :base64 (codec/encode (fs/read-file path))
+         :at (t/iso-str)
+         :binary? false}))))
 
 (defn artifacts
   "Every recorded artifact, sorted — deterministic across hosts, which the
@@ -81,22 +101,38 @@
 
 (defn run
   "The whole demo, as data. Returns a map a test can assert on rather than
-  printing — printing is the caller's business."
+  printing — printing is the caller's business.
+
+  `:host` and `:capabilities` are in the output on purpose: the same source runs
+  on four runtimes, and the answer legitimately differs on the two that cannot
+  stream a child or read bytes. Saying which host produced a result is part of
+  reporting it honestly."
   []
   (let [cfg (config)]
     (proc/sh ["mkdir" "-p" (:workdir cfg)])
     (let [receipt (record! cfg "hello.bin" "hello ☃")
-          echo    (timed (fn []
-                           (let [{:keys [call stop]} (rpc-client ["cat"])]
-                             (let [r (call "ping" {:seq 1})
-                                   s (call "ping" {:seq 2})]   ; a SECOND turn
-                               (stop)
-                               [r s]))))]
-      {:config    (dissoc cfg :token)
+          echo    (when (host/supports? :process/spawn)
+                    (timed (fn []
+                             (let [{:keys [call stop]} (rpc-client ["cat"])]
+                               (let [r (call "ping" {:seq 1})
+                                     s (call "ping" {:seq 2})]   ; a SECOND turn
+                                 (stop)
+                                 [r s])))))]
+      {:host      (name host/id)
+       :tier      (name host/tier)
+       :config    (dissoc cfg :token)
        :receipt   receipt
        :artifacts (artifacts cfg)
-       :echo      (:value echo)
-       :echo-ms   (:ms echo)})))
+       ;; no streaming child on this host: `sh` still runs one to completion,
+       ;; which is the honest fallback for a request/response exchange.
+       :echo      (if echo
+                    (:value echo)
+                    [(json/read-str (:out (proc/sh ["cat"]
+                                                   {:in (json/write-str
+                                                         {:jsonrpc "2.0" :id 1 :method "ping"
+                                                          :params {:seq 1}})})))])
+       :echo-ms   (:ms echo)
+       :streamed? (some? echo)})))
 
 (defn -main [& _]
   (println (json/write-str (run))))

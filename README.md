@@ -66,7 +66,8 @@ portable API, and let everything above it be plain Clojure.
 | `koine.process` | `sh` / `spawn` | `ProcessBuilder` · `os:exec` · `os` ns · `cljg.io` + `cljg.process` |
 | `koine.fs` | `exists?` `directory?` `list-tree` `find-files` `read-bytes` `write-bytes` | `java.io.File` · `java.nio` · `cljg.io` · `io`/`os` ns |
 | `koine.time` | `now-ms` `mono-ms` `sleep!` `iso-str` `parse-iso` | `System/nanoTime` · `java.time.Instant` · `cljg.date` · `cljg.system` |
-| `koine.codec` | `encode` / `decode` / `decode-bytes` (base64) | `java.util.Base64` · `cljg.security` |
+| `koine.codec` | `encode` / `decode` / `decode-bytes` (base64) | `java.util.Base64` · `cljg.security` · `io/encode` · pure |
+| `koine.host` | `id` / `tier` / `supports?` | pure — what THIS host can do, so a caller can degrade without a `catch` |
 
 Reader features, confirmed from each implementation's source: `:clj` · `:cljgo`
 (cljgo ADR 0036) · `:glj` (`pkg/reader/reader.go:1403`) · `:lg`
@@ -173,17 +174,17 @@ it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.3.0"}
+net.clojars.muthuishere/koine {:mvn/version "0.4.0"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.3.0"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.4.0"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
-**The API is unstable at `0.3.0`.** `koine.process`, `koine.route` and
+**The API is unstable at `0.4.0`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env`,
 `koine.time`, `koine.fs` and `koine.codec` are settled.
 

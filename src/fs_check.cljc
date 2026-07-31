@@ -9,7 +9,8 @@
 ;; The tree is built with koine.fs itself under a fixed directory below /tmp —
 ;; no temp-dir shim is assumed, and the directory is created with mkdir -p via
 ;; koine.process (portable), then removed at the end.
-(require 'koine.fs 'koine.process 'clojure.string)
+(require 'koine.fs 'koine.process 'koine.host 'clojure.string)
+(alias 'host 'koine.host)
 (alias 'fs 'koine.fs)
 (alias 'proc 'koine.process)
 (alias 'cstr 'clojure.string)

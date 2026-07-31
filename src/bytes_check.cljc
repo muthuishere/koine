@@ -10,10 +10,17 @@
 ;; Element SIGN is asserted explicitly. The JVM's byte[] is signed, so 0x80 is
 ;; -128 and 0xFF is -1; a host returning 128 and 255 would compose wrongly with
 ;; every JVM consumer while looking fine in isolation.
-(require 'koine.fs 'koine.codec 'koine.process)
+(require 'koine.fs 'koine.codec 'koine.process 'koine.host)
+(alias 'host 'koine.host)
 (alias 'fs 'koine.fs)
 (alias 'codec 'koine.codec)
 (alias 'proc 'koine.process)
+
+;; Byte I/O and byte base64 are not on every host — let-go has neither (see
+;; koine.host). Everything byte-shaped below is gated on the capability, so this
+;; check reports honestly instead of failing a host for a documented gap.
+(def bytes? (host/supports? :fs/bytes))
+(def b64-bytes? (host/supports? :codec/base64-bytes))
 
 (def root "/tmp/koine-bytes-check")
 (proc/sh ["rm" "-rf" root])
@@ -24,29 +31,29 @@
 ;; every byte 0-255 exactly once, written as the signed values the JVM uses
 (def all-bytes (byte-array (map (fn [i] (if (> i 127) (- i 256) i)) (range 256))))
 
-(fs/write-bytes bin all-bytes)
-(def read-back (fs/read-bytes bin))
+(when bytes? (fs/write-bytes bin all-bytes))
+(def read-back (when bytes? (fs/read-bytes bin)))
 
 ;; a payload that is NOT valid UTF-8, so the text route provably cannot carry it
 (def raw (byte-array [0 1 2 -128 -1 65]))
 (def raw-path (str root "/raw.bin"))
-(fs/write-bytes raw-path raw)
+(when bytes? (fs/write-bytes raw-path raw))
 
 (def b64-str  (codec/encode "hello ☃"))
-(def b64-bin  (codec/encode raw))
+(def b64-bin  (when b64-bytes? (codec/encode raw)))
 
 (def cases
-  [["roundtrip-len"    (alength read-back)                         256]
-   ["roundtrip-bytes"  (vec read-back)                             (vec all-bytes)]
-   ["signed-0x80"      (nth (vec read-back) 128)                   -128]
-   ["signed-0xff"      (nth (vec read-back) 255)                   -1]
-   ["zero-byte-kept"   (nth (vec read-back) 0)                     0]
+  [["roundtrip-len"    (when bytes? (count (vec read-back)))            (when bytes? 256)]
+   ["roundtrip-bytes"  (when bytes? (vec read-back))                (when bytes? (vec all-bytes))]
+   ["signed-0x80"      (when bytes? (nth (vec read-back) 128))      (when bytes? -128)]
+   ["signed-0xff"      (when bytes? (nth (vec read-back) 255))      (when bytes? -1)]
+   ["zero-byte-kept"   (when bytes? (nth (vec read-back) 0))        (when bytes? 0)]
 
-   ["raw-roundtrip"    (vec (fs/read-bytes raw-path))              [0 1 2 -128 -1 65]]
-   ["overwrite"        (do (fs/write-bytes raw-path (byte-array [9]))
-                           (vec (fs/read-bytes raw-path)))         [9]]
-   ["empty-file"       (do (fs/write-bytes (str root "/e.bin") (byte-array 0))
-                           (alength (fs/read-bytes (str root "/e.bin")))) 0]
+   ["raw-roundtrip"    (when bytes? (vec (fs/read-bytes raw-path))) (when bytes? [0 1 2 -128 -1 65])]
+   ["overwrite"        (when bytes? (do (fs/write-bytes raw-path (byte-array [9]))
+                                        (vec (fs/read-bytes raw-path))))  (when bytes? [9])]
+   ["empty-file"       (when bytes? (do (fs/write-bytes (str root "/e.bin") (byte-array 0))
+                                        (count (vec (fs/read-bytes (str root "/e.bin")))))) (when bytes? 0)]
 
    ;; base64 — standard alphabet, padded (RFC 4648 §4), NOT url-safe
    ["b64-ascii"        (codec/encode "hello")                      "aGVsbG8="]
@@ -54,17 +61,22 @@
    ["b64-roundtrip"    (codec/decode b64-str)                      "hello ☃"]
    ["b64-empty"        (codec/encode "")                           ""]
    ["b64-padding"      (codec/encode "a")                          "YQ=="]
-   ["b64-binary"       b64-bin                                     "AAECgP9B"]
-   ["b64-binary-rt"    (vec (codec/decode-bytes b64-bin))          [0 1 2 -128 -1 65]]
-   ["b64-not-urlsafe"  (codec/encode (byte-array [-5 -1 -66]))     "+/++"]
+   ["b64-binary"       b64-bin                                     (when b64-bytes? "AAECgP9B")]
+   ["b64-binary-rt"    (when b64-bytes? (vec (codec/decode-bytes b64-bin)))
+                                                                   (when b64-bytes? [0 1 2 -128 -1 65])]
+   ["b64-not-urlsafe"  (when b64-bytes? (codec/encode (byte-array [-5 -1 -66])))
+                                                                   (when b64-bytes? "+/++")]
 
    ;; the two seams compose: file -> bytes -> base64 -> bytes -> file
-   ["compose"          (do (fs/write-bytes (str root "/c.bin")
-                                           (codec/decode-bytes (codec/encode all-bytes)))
-                           (vec (fs/read-bytes (str root "/c.bin")))) (vec all-bytes)]])
+   ["compose"          (when (and bytes? b64-bytes?)
+                         (do (fs/write-bytes (str root "/c.bin")
+                                             (codec/decode-bytes (codec/encode all-bytes)))
+                             (vec (fs/read-bytes (str root "/c.bin")))))
+                                                                   (when (and bytes? b64-bytes?) (vec all-bytes))]])
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))
-  (println (str (- (count cases) (count fails)) "/" (count cases) " pass")))
+  (println (str (- (count cases) (count fails)) "/" (count cases) " pass"
+                (when-not bytes? " (byte I/O SKIPPED: unsupported on this host)"))))
 
 (proc/sh ["rm" "-rf" root])

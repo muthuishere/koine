@@ -9,8 +9,9 @@
 ;; Only POSIX tools every host box has are used (cat, sh, pwd, env), so there is
 ;; nothing to install. `cat` is the ideal spawn peer: it echoes each line as it
 ;; arrives and exits 0 on EOF.
-(require 'koine.process)
+(require 'koine.process 'koine.host)
 (alias 'proc 'koine.process)
+(alias 'host 'koine.host)
 
 ;; --- sh: run to completion --------------------------------------------------
 (def echoed  (proc/sh ["sh" "-c" "printf 'hi\\n'"]))
@@ -21,8 +22,11 @@
                        {:env {"KOINE_CHECK_VAR" "envd"}}))
 
 ;; --- spawn: a live conversation ---------------------------------------------
+(def spawn? (host/supports? :process/spawn))
+
 (def convo
-  (let [c   (proc/spawn ["cat"])
+  (when spawn?
+   (let [c   (proc/spawn ["cat"])
         _   (proc/send-line! c "one")
         r1  (proc/read-line! c)
         a1  (proc/alive? c)
@@ -31,16 +35,17 @@
         _   (proc/send-line! c "café ☃")
         r3  (proc/read-line! c)
         ex  (proc/close! c)]
-    {:r1 r1 :r2 r2 :r3 r3 :alive-mid a1 :exit ex}))
+    {:r1 r1 :r2 r2 :r3 r3 :alive-mid a1 :exit ex})))
 
 ;; EOF: after the child's output is exhausted, read-line! is nil, not a hang
 ;; and not "".
 (def at-eof
-  (let [c  (proc/spawn ["sh" "-c" "printf 'only\\n'"])
+  (when spawn?
+   (let [c  (proc/spawn ["sh" "-c" "printf 'only\\n'"])
         r1 (proc/read-line! c)
         r2 (proc/read-line! c)]
     (proc/close! c)
-    {:r1 r1 :r2 r2}))
+    {:r1 r1 :r2 r2})))
 
 (def cases
   [["sh-out"        (:out echoed)                 "hi\n"]
@@ -52,16 +57,20 @@
    ["sh-dir"        (boolean (re-find #"tmp" (:out in-dir))) true]
    ["sh-env"        (:out with-env)               "envd"]
 
-   ["spawn-rt1"     (:r1 convo)                   "one"]
-   ["spawn-rt2"     (:r2 convo)                   "two"]      ; the buffering tell
-   ["spawn-utf8"    (:r3 convo)                   "café ☃"]
-   ["spawn-alive"   (:alive-mid convo)            true]
-   ["spawn-exit"    (:exit convo)                 0]
-   ["spawn-no-nl"   (nil? (re-find #"\n" (str (:r1 convo)))) true]
+   ;; spawn is not on every host — let-go has no route to a live child's pipes.
+   ;; `koine.host/supports?` answers that portably, so the check SKIPS rather
+   ;; than failing or (worse) needing a host-specific catch to probe with.
+   ["spawn-rt1"     (:r1 convo)                   (when spawn? "one")]
+   ["spawn-rt2"     (:r2 convo)                   (when spawn? "two")]      ; the buffering tell
+   ["spawn-utf8"    (:r3 convo)                   (when spawn? "café ☃")]
+   ["spawn-alive"   (:alive-mid convo)            (when spawn? true)]
+   ["spawn-exit"    (:exit convo)                 (when spawn? 0)]
+   ["spawn-no-nl"   (if spawn? (nil? (re-find #"\n" (str (:r1 convo)))) true) true]
 
-   ["eof-line"      (:r1 at-eof)                  "only"]
+   ["eof-line"      (:r1 at-eof)                  (when spawn? "only")]
    ["eof-nil"       (:r2 at-eof)                  nil]])
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))
-  (println (str (- (count cases) (count fails)) "/" (count cases) " pass")))
+  (println (str (- (count cases) (count fails)) "/" (count cases) " pass"
+                (when-not spawn? " (spawn SKIPPED: unsupported on this host)"))))

@@ -13,11 +13,16 @@
 ;; Needs npx on PATH and network access on first run (it fetches
 ;; @modelcontextprotocol/server-everything). SKIPs cleanly without npx, so
 ;; run-conformance.sh stays green on a box that has no node.
-(require 'koine.process 'koine.json)
+(require 'koine.process 'koine.json 'koine.host)
 (alias 'proc 'koine.process)
 (alias 'json 'koine.json)
+(alias 'host 'koine.host)
 
-(def npx? (zero? (:exit (proc/sh ["sh" "-c" "command -v npx >/dev/null"]))))
+;; Two reasons to skip, and they are different: no npx on the box (nothing to
+;; talk to), or a host with no streaming child at all (let-go — see koine.host).
+;; Neither is a failure; both are reported rather than hidden.
+(def spawn? (host/supports? :process/spawn))
+(def npx? (and spawn? (zero? (:exit (proc/sh ["sh" "-c" "command -v npx >/dev/null"])))))
 
 (defn- rpc!
   "Send one JSON-RPC request and read lines until one carries a matching :id.
@@ -70,9 +75,11 @@
      ;; the round trip that matters: a request sent AFTER two prior exchanges,
      ;; answered by a child that has stayed alive throughout
      ["tools-call-echo"   (boolean (re-find #"koine ☃" (str (:echo result)))) true]]
-    [["skipped-no-npx"    :skip                                        :skip]]))
+    [["skipped"           :skip                                        :skip]]))
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))
   (println (str (- (count cases) (count fails)) "/" (count cases) " pass"
-                (when-not npx? " (SKIP: no npx on PATH)"))))
+                (cond (not spawn?) " (SKIP: no streaming subprocess on this host)"
+                      (not npx?)   " (SKIP: no npx on PATH)"
+                      :else        ""))))
