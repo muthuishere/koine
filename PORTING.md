@@ -201,3 +201,22 @@ a host-specific require cost only where it applies.
   exposes its listener. An explicit port is required.
 - let-go and cljgo have **no true monotonic clock** reachable from user code, so
   `koine.time/mono-ms` falls back to a high-water-clamped wall clock there.
+
+## On cljgo, assert on OUTPUT — never on the exit code
+
+Two independent ways a cljgo program reports success while doing nothing:
+
+- **`cljgo run <file>` does not call `-main`.** It evaluates the top-level forms
+  and exits 0. A file whose work lives in `-main` prints nothing and looks like a
+  program that ran fine and had nothing to say. (Verified 2026-07-31: a file with
+  a top-level `println` and a `-main` printed only the top-level line, exit 0.)
+  An interpreted entry point needs the call at the top level; `cljgo build`
+  binaries DO invoke `-main`, so the two modes disagree.
+- **`cljgo test` skipped `.cljc` entirely** until the fix landed, printing
+  "Ran 0 tests containing 0 assertions. 0 failures" and exiting 0 — a green
+  light for a suite that never ran.
+
+Both are the same failure shape: exit 0 means "nothing threw", not "the thing
+happened". Every check in `src/*_check.cljc` therefore prints an `n/n pass` line
+and the runner reads THAT, not `$?`. The toolnexus port adopted the same rule
+after hitting the `-main` case (2026-07-31).
