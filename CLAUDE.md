@@ -48,14 +48,17 @@ Read this before adding anything.
   is.
 - **Not ClojureScript / `:cljr` / `:bb` / jank.** Out of scope. ClojureScript
   cannot spawn a subprocess, which rules out roughly half of what consumers need.
-- **Not a stable API yet.** See `INPROGRESS.md`. Nothing is published; the
-  `koine.process` shape in particular is expected to move.
+- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.4.1
+  at the time of writing) with the API explicitly marked unstable; `koine.route`
+  and `koine.server` are the most likely to move. See `INPROGRESS.md`.
 
 ## Repo layout
 
 | Path | What |
 |---|---|
 | `src/koine/*.cljc` | The library. One namespace per capability. |
+| `src/koine/host.cljc` | Which host, which tier, and `supports?` — how a caller degrades WITHOUT a host-specific `catch`. |
+| `examples/` | Four consumer projects (JVM, cljgo, Glojure, let-go) on the published Clojars artifact, one shared source, `./examples/run-both.sh`. |
 | `src/conformance.cljc`, `src/*_check.cljc` | Host-parameterised conformance checks — run on **every** installed runtime. This is the real test suite. |
 | `test/koine/*_test.cljc` | `clojure.test` suites. **JVM only.** |
 | `run-conformance.sh` | Runs every check on every installed host, skipping the ones you don't have. |
@@ -86,8 +89,9 @@ Read this before adding anything.
 ## Commands
 
 ```bash
-clojure -M:test        # JVM clojure.test suite (41 tests / 181 assertions)
-./run-conformance.sh   # every check on every installed host — the real gate
+clojure -M:test          # JVM clojure.test suite (104 tests / 359 assertions)
+./run-conformance.sh     # every check on every installed host — the real gate
+./examples/run-both.sh   # the published artifact, consumed on all four hosts
 ```
 
 Installing the other hosts:
@@ -100,6 +104,48 @@ go install github.com/nooga/let-go@latest
 
 Note `clojure -M:test` only proves the JVM. **A change is not verified until
 `run-conformance.sh` is green on at least JVM + cljgo.**
+
+## When the bug is the host's, fix the host
+
+**A defect that genuinely belongs to cljgo gets FIXED IN CLJGO, not worked around
+here.** cljgo is ours (`../cljgo`, `muthuishere/cljgo`), it is a tier-1 host, and
+koine is usually the first real consumer to hit anything — so a workaround in
+koine hides a bug every other cljgo user will meet later, and leaves koine
+carrying the scar tissue forever.
+
+The order:
+
+1. **Measure it.** Reduce to a minimal repro that does not mention koine. If it
+   cannot be reproduced without koine, it is probably koine's bug.
+2. **Fix it upstream** — patch + test in `../cljgo`, run its gate (`gofmt -l`,
+   `go vet ./...`, `go test ./pkg/... ./cmd/...`). Small, self-contained fixes:
+   just do them.
+3. **File it instead ONLY when the fix is a design decision** — new CLI surface,
+   a changed contract, anything with more than one defensible answer. Open a
+   GitHub issue (`gh issue create`) with the repro, the code sites, and a
+   recommendation. Record it in the live cljgo ADR too.
+4. **Then release and consume the fix**, rather than keeping a local shim.
+5. **Never quietly paper over it.** If koine must carry a temporary workaround
+   until a fix ships, say so in the code, name the upstream issue, and say what
+   deletes it.
+
+Precedent, all 2026-07-30/31 — every one of these was a host bug found *by
+consuming koine*, and none was reachable from cljgo's own suite (its sources are
+`.cljg`; its docstrings never happened to land an em dash on byte 90):
+
+| symptom | actually | outcome |
+|---|---|---|
+| `koine.env/expand` threw on cljgo | `clojure.string/replace` rejected a fn replacement | fixed upstream |
+| no env / spawn / stream / clock | four missing capabilities | ADR 0109 upstream, then used |
+| no bytes / dates / base64 | ADR 0110 asks | implemented upstream, then used |
+| `cljgo test` reported "Ran 0 tests … 0 failures" | the walk skipped `.cljc` entirely | **fixed upstream** (+test) |
+| `emit: 73:92: illegal UTF-8` | comment truncated at 90 *bytes*, splitting a rune | **fixed upstream** (+test) |
+| `run resolve with -update` | no such command exists | **issue #166** — CLI design call |
+| `load-file` resolves, then "cannot call nil" | unbound var | **issue #167** |
+
+The two fixed ones are the shape to aim for: an hour upstream removed a silent
+green-when-broken test run and a build failure that pointed at generated source
+the author never wrote.
 
 ## Portability traps — learned the hard way
 
@@ -121,6 +167,22 @@ Each of these looked fine on the JVM and broke elsewhere. Treat them as rules.
    not run time. Keep host results on a nil-tolerant path. *(New, 2026-07-30 —
    the most likely source of "works in `cljgo run`, fails in `cljgo build`".)*
 7. **`lang.Char` does not coerce to Go `byte` on cljgo** — pass the integer.
+8. **Glojure has `defprotocol` but NOT `reify` / `deftype` / `defrecord` /
+   `extend-type`** — all four answer `RTEvalError`, so a protocol there can be
+   declared and never implemented. Return a **map of closures** instead; that is
+   why `koine.process`'s child handle is a map (as `koine.server`'s already was).
+9. **Go's `byte` is UNSIGNED** — a byte read on a Go-hosted dialect is 128/255
+   where the JVM gives -128/-1. koine normalises to the JVM contract at the
+   boundary; `bytes_check` asserts it.
+10. **Glojure rejects struct-field assignment** — `(set! (.-Stdout c) …)` and
+    `(set! (.-Dir c) …)` both fail, so `:dir`/`:env` ride an `sh -c` wrapper.
+11. **`spit` resolves but is unbound on Glojure** ("cannot call nil"), and
+    `clojure.set` does not exist there at all. Neither shows up until called.
+12. **let-go's `os/sh` accepts `:in` and silently ignores it** — the child sees
+    empty stdin. Feed it through a redirect.
+13. **A capability probe must not be a `try`/`catch`** — catching needs
+    `Throwable` on the JVM, cljgo and let-go, and `go/error` on Glojure, so the
+    probe itself would be host-specific. Ask `koine.host/supports?` instead.
 
 ## JSON is ours on purpose
 
@@ -171,4 +233,6 @@ got wrong.
 | `INPROGRESS.md` | Current state, publish readiness, open questions |
 | `docs/cljgo-requests.md` | What koine needs from cljgo, with evidence |
 | toolnexus `docs/adr/0009-clojure-port-cljc-dual-host.md` | Why koine exists; the measurements behind every decision here |
-| cljgo `docs/adr/0104-go-stdlib-interop.md` | The upstream change that unblocked koine's cljgo branches |
+| cljgo `docs/adr/0109-go-stdlib-interop.md` | Round one upstream: env, streaming subprocess, streaming HTTP, monotonic clock |
+| cljgo `docs/adr/0110-bytes-dates-and-core-parity.md` | Round two upstream: bytes, ISO dates, base64, core parity — plus the addenda for everything found since |
+| `examples/README.md` | The four consumer projects, and how a caller degrades honestly |
