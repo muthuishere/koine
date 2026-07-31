@@ -38,10 +38,12 @@ glojure-app/         the Glojure project
   run.sh             unpacks the SAME Clojars jar onto GLJ_CLASSPATH
   src/demo/main.cljg       the entry point (Glojure has no -main convention)
   src/demo/app.cljc        -> ../clojure-app/src/demo/app.cljc
+  test/demo/app_test.cljc  -> ../clojure-app/test/demo/app_test.cljc
 let-go-app/          the let-go project (tier 3)
   run.sh             unpacks the SAME Clojars jar onto -source-paths
   src/demo/main.cljc       the entry point
   src/demo/app.cljc        -> ../clojure-app/src/demo/app.cljc
+  test/demo/app_test.cljc  -> ../clojure-app/test/demo/app_test.cljc
 ```
 
 Glojure and let-go have no package manager, so their `run.sh` unpacks the very
@@ -53,12 +55,21 @@ pointing at `../../src`.
 The symlinks are the honest version of "one source": there is no second copy to
 drift, and every project reads the exact bytes the Clojure project does.
 
-They were briefly worse than that. `cljgo test` used to walk `src/`/`test/` for
-`.clj` and `.cljg` only and **silently skip `.cljc`** — reporting "Ran 0 tests …
-0 failures" and exiting 0, which reads as a green suite rather than one that
-never ran — so the cljgo project had to symlink `app.cljg -> app.cljc` to be
-seen at all. That is fixed upstream now (cljgo `sourceFiles`, with a test), and
-these are plain `.cljc` symlinks again. Requires a cljgo carrying that fix.
+Every project keeps the conventional split — source in `src/`, suite in `test/`.
+That was briefly not true, in two different ways, and both are now gone:
+
+- `cljgo test` used to walk `src/`/`test/` for `.clj` and `.cljg` only and
+  **silently skip `.cljc`** — reporting "Ran 0 tests … 0 failures" and exiting 0,
+  which reads as a green suite rather than one that never ran. The cljgo project
+  had to symlink `app.cljg -> app.cljc` to be seen at all. Fixed upstream in
+  cljgo `sourceFiles` (with a test) and **released in v0.8.2** — so these are
+  plain `.cljc` symlinks in the ordinary places again.
+- The Glojure and let-go suites briefly sat in `src/` because their runners load
+  one path. They load `test/` too; the layout was a workaround for a constraint
+  that was never real. Both now use `test/`, and both still pass.
+
+**The cljgo project requires cljgo ≥ v0.8.2.** On v0.8.1 its suite reports
+"Ran 0 tests … 0 failures" and exits 0 — green, having run nothing.
 
 ## Run them individually
 

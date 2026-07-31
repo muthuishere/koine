@@ -15,4 +15,4 @@ JAR="$HOME/.m2/repository/net/clojars/muthuishere/koine/$VERSION/koine-$VERSION.
 
 rm -rf .koine && mkdir -p .koine && (cd .koine && unzip -qo "$JAR")
 
-exec lg -source-paths ".koine:src" "${1:-src/demo/main.cljc}"
+exec lg -source-paths ".koine:src:test" "${1:-src/demo/main.cljc}"

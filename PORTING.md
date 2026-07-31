@@ -214,7 +214,8 @@ Two independent ways a cljgo program reports success while doing nothing:
   binaries DO invoke `-main`, so the two modes disagree.
 - **`cljgo test` skipped `.cljc` entirely** until the fix landed, printing
   "Ran 0 tests containing 0 assertions. 0 failures" and exiting 0 — a green
-  light for a suite that never ran.
+  light for a suite that never ran. Fixed and **released in cljgo v0.8.2**; on
+  v0.8.1 and earlier a `.cljc` suite is invisible.
 
 Both are the same failure shape: exit 0 means "nothing threw", not "the thing
 happened". Every check in `src/*_check.cljc` therefore prints an `n/n pass` line

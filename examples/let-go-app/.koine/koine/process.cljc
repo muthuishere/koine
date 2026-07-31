@@ -160,10 +160,62 @@
   "Close the child's stdin, wait for it to exit, and return the exit code."
   [child] ((:close! child)))
 
+;; ------------------------------------------------------------------ stderr
+;;
+;; A child's stderr MUST be drained, whether or not anyone reads it. It is not a
+;; convenience: an undrained pipe fills its OS buffer (typically 64 KiB) and then
+;; the CHILD BLOCKS ON WRITE — forever. The symptom is a peer that completes its
+;; handshake and then goes silent, with nothing in any log to explain it, which
+;; is indistinguishable from a hung peer and is one of the worst things to debug.
+;; Verbose MCP servers hit it. Reported by the toolnexus port, 2026-07-31.
+;;
+;; So a background reader drains it always, into a BOUNDED ring — a chatty
+;; server must not grow the caller's heap — and `stderr-lines` hands back what is
+;; there. `future` is the concurrency primitive because it is the one that exists
+;; on every host that has `spawn` (JVM, cljgo, Glojure — verified 2026-07-31).
+
+(def ^:private stderr-keep
+  "How many trailing stderr lines a child retains. Enough to explain a crash,
+  small enough that a server logging in a loop cannot exhaust memory."
+  200)
+
+(defn- ring-conj
+  "Append to a bounded vector, dropping from the front. Pure."
+  [v line]
+  (let [v (conj (or v []) line)]
+    (if (> (count v) stderr-keep)
+      (subvec v (- (count v) stderr-keep))
+      v)))
+
+(defn- drain-into!
+  "Read `read-line-fn` to EOF on a background thread, appending each line to the
+  `sink` atom's ring. Returns nil immediately. Never throws into the caller: the
+  child dying mid-read is the normal way this ends."
+  [sink read-line-fn]
+  (future
+    (loop []
+      (when-let [line (read-line-fn)]
+        (swap! sink ring-conj line)
+        (recur))))
+  nil)
+
+(defn stderr-lines
+  "The child's most recent stderr lines (up to 200), oldest first, as a vector.
+
+  Always available — stderr is drained from the moment the child starts, so this
+  is a snapshot of a buffer that is being filled for you, not a read that could
+  block. Returns [] when the child has written nothing."
+  [child]
+  (if-let [f (:stderr-lines child)] (f) []))
+
 (defn spawn
   "Start `command` (a vector) as a LONG-LIVED child with piped stdin/stdout and
   return a child handle — a map of closures, see above. This is what a
   line-delimited JSON-RPC transport (MCP stdio) requires; `sh` cannot express it.
+
+  The child's STDERR is drained from the moment it starts — see the comment
+  above; not draining it deadlocks the child once the pipe buffer fills. Read it
+  with `stderr-lines`.
 
   opts: :dir :env"
   ([command] (spawn command {}))
@@ -176,11 +228,16 @@
             p   (.start pb)
             out (java.io.OutputStreamWriter. (.getOutputStream p) "UTF-8")
             in  (java.io.BufferedReader.
-                  (java.io.InputStreamReader. (.getInputStream p) "UTF-8"))]
-        {:send-line! (fn [s] (.write out (str s "\n")) (.flush out) nil)
-         :read-line! (fn [] (.readLine in))
-         :alive?     (fn [] (.isAlive p))
-         :close!     (fn [] (.close out) (.waitFor p))})
+                  (java.io.InputStreamReader. (.getInputStream p) "UTF-8"))
+            err (java.io.BufferedReader.
+                  (java.io.InputStreamReader. (.getErrorStream p) "UTF-8"))
+            sink (atom [])]
+        (drain-into! sink (fn [] (.readLine err)))
+        {:send-line!   (fn [s] (.write out (str s "\n")) (.flush out) nil)
+         :read-line!   (fn [] (.readLine in))
+         :alive?       (fn [] (.isAlive p))
+         :stderr-lines (fn [] @sink)
+         :close!       (fn [] (.close out) (.waitFor p))})
 
       :cljgo
       ;; cljg.process/spawn hands back live cljg.stream handles — {:in :out :err
@@ -191,12 +248,15 @@
                                        (cond-> {}
                                          dir (assoc :dir dir)
                                          env (assoc :env env)))
-            exited (atom nil)]
-        {:send-line! (fn [s] (cljg.stream/write-line (:in p) (str s)) nil)
-         :read-line! (fn [] (cljg.stream/read-line (:out p)))
-         :alive?     (fn [] (nil? @exited))
-         :close!     (fn [] (cljg.stream/close (:in p))
-                       (or @exited (reset! exited ((:wait p)))))})
+            exited (atom nil)
+            sink   (atom [])]
+        (drain-into! sink (fn [] (cljg.stream/read-line (:err p))))
+        {:send-line!   (fn [s] (cljg.stream/write-line (:in p) (str s)) nil)
+         :read-line!   (fn [] (cljg.stream/read-line (:out p)))
+         :alive?       (fn [] (nil? @exited))
+         :stderr-lines (fn [] @sink)
+         :close!       (fn [] (cljg.stream/close (:in p))
+                         (or @exited (reset! exited ((:wait p)))))})
 
       :glj
       ;; Go's os/exec pipes. The line buffering is hand-rolled because `bufio` is
@@ -208,6 +268,8 @@
       (let [c      (apply os:exec.Command (glj-argv command dir env))
             stdin  (nth (.StdinPipe c) 0)
             stdout (nth (.StdoutPipe c) 0)
+            stderr (nth (.StderrPipe c) 0)
+            sink   (atom [])
             pend   (bytes.NewBufferString "")
             chunk  (go/make (go/slice-of go/byte) 4096)
             done   (atom nil)
@@ -221,6 +283,29 @@
                   (do (when (pos? (go/len bs)) (.Write pend bs))
                       nil))))]
         (.Start c)
+        ;; Drain stderr on its own reader — same 4 KiB chunking as stdout, since
+        ;; `bufio` is unreachable here too. Without this the child blocks once
+        ;; the pipe buffer fills, exactly as on the other hosts.
+        (let [echunk (go/make (go/slice-of go/byte) 4096)
+              epend  (bytes.NewBufferString "")]
+          (drain-into! sink
+                       (fn []
+                         (loop []
+                           (let [lr   (.ReadBytes epend 10)
+                                 bs   (nth lr 0)
+                                 miss (nth lr 1)]
+                             (if-not miss
+                               (.String (bytes.NewBuffer (go/slice bs 0 (dec (go/len bs)))))
+                               (do (when (pos? (go/len bs)) (.Write epend bs))
+                                   (let [r (.Read stderr echunk)
+                                         n (nth r 0)
+                                         e (nth r 1)]
+                                     (when (pos? n) (.Write epend (go/slice echunk 0 n)))
+                                     (cond
+                                       (pos? n) (recur)
+                                       e        (let [tail (.String epend)]
+                                                  (when (not= "" tail) tail))
+                                       :else    (recur))))))))))
         {:send-line! (fn [s]
                        (.Write stdin (.Bytes (bytes.NewBufferString (str s "\n"))))
                        nil)
