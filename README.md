@@ -97,7 +97,7 @@ three choices once, for every host:
    alone is not enough: the hosts disagree on what *sorted* means. `sort` on
    strings compares UTF-16 code units on the JVM and UTF-8 bytes on Go, which
    agree across the whole BMP and diverge above it — so a single emoji in a key
-   produced different bytes on the two hosts (fixed in 0.8.0). koine picks
+   produced different bytes on the two hosts (fixed in 0.8.1). koine picks
    code-point order, which is also UTF-8 byte order;
 2. **floats keep their fraction** — `1.0` never becomes `1`;
 3. **non-ASCII is emitted literally**; only the seven JSON escapes and `<0x20`
@@ -111,7 +111,7 @@ portable.
 
 ## Status
 
-**Early.** Verified on Clojure 1.12.5 and cljgo **v0.8.5** (the first release koine is green on; v0.8.3 and v0.8.4 are broken for any project with a root `build.clj`).
+**Early.** Verified on Clojure 1.12.5 and cljgo **v0.8.5 and v0.8.6** (the first release koine is green on; v0.8.3 and v0.8.4 are broken for any project with a root `build.clj`).
 
 The JSON conformance suite passes **14/14 on both hosts** — including every
 payload where the hosts' own JSON libraries diverged.
@@ -170,13 +170,13 @@ it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.8.0"}
+net.clojars.muthuishere/koine {:mvn/version "0.8.1"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.8.0"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.8.1"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
@@ -187,7 +187,7 @@ net.clojars.muthuishere/koine {:mvn/version "0.8.0"}
 > the wrong order. `clojure.core`'s `compare` on vectors compares count before
 > contents, and 0.7.2's new key comparator relied on it.
 >
-> **Upgrade to `0.8.0`.** Both hosts were affected identically, so the
+> **Upgrade to `0.8.1`.** Both hosts were affected identically, so the
 > cross-host check stayed green while the output was simply wrong — which is
 > worse than a divergence, because nothing disagreed.
 >
@@ -202,7 +202,7 @@ net.clojars.muthuishere/koine {:mvn/version "0.8.0"}
 > `future`, and Clojure's future-pool threads are non-daemon with a 60-second
 > keep-alive.
 >
-> **Upgrade to `0.8.0`.** Measured twice, independently: 61.07s → 0.56s here,
+> **Upgrade to `0.8.1`.** Measured twice, independently: 61.07s → 0.56s here,
 > and 1:02.00 → 2.1s on a consumer's MCP suite. cljgo was never affected.
 >
 > **Bytes, ordering, exit codes and cross-host parity are unaffected in all
@@ -210,7 +210,7 @@ net.clojars.muthuishere/koine {:mvn/version "0.8.0"}
 > you *computed* with 0.4.2 or 0.5.0 is wrong; only anything you *timed* on the
 > JVM is.
 
-**The API is unstable at `0.8.0`.** `koine.process`, `koine.route` and
+**The API is unstable at `0.8.1`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env`,
 `koine.time`, `koine.fs` and `koine.codec` are settled.
 

@@ -255,28 +255,45 @@
   [child] ((:kill! child)))
 
 (defn exit-code
-  "The status the child exited with, or nil while it is still running.
+  "The status the child exited with, or nil if it has NOT BEEN SEEN to exit yet.
 
-  This is the difference between a peer that DIED and a peer that went QUIET,
-  and `read-line!` alone cannot tell you: it returns nil for both. A transport
-  reading nil has two very different situations to distinguish —
+  Read that second clause carefully, because it is not the same as \"the child
+  is running\". Reaping is ASYNCHRONOUS on both hosts: a child can be dead while
+  this still answers nil, for as long as it takes the host to notice. A caller
+  that treats one nil as proof of life has a race, and it is the nastiest kind —
+  it passes constantly on a fast machine and fails on a loaded one.
+
+  So a single read is never a verdict. Poll to a deadline:
 
       (when (nil? (proc/read-line! c))
-        (if-let [code (proc/exit-code c)]
-          (peer-died code)        ; it exited; `code` says how
-          (still-running c)))     ; stdout closed or is merely idle
+        (let [code (loop [n 0]
+                     (or (proc/exit-code c)
+                         (when (< n 50)
+                           (ktime/sleep! 20)
+                           (recur (inc n)))))]
+          (if code
+            (peer-died code)      ; it exited, and `code` says how
+            (still-quiet c))))    ; still nothing after the deadline
 
-  Without it the only recourse is a timeout — waiting a while and then killing
-  the child to find out whether it was ever going to answer. That is a guess
-  standing in for a fact, and it is wrong in both directions: too short kills a
-  slow peer, too long hangs on a dead one. Asked for by the toolnexus port,
-  whose MCP transport was carrying exactly that guess in shipped code.
+  (koine's own `process_check` has always polled like this; an earlier version
+  of this docstring told callers to branch on a single read, which is advice
+  koine did not follow itself. Corrected on cljgo's prompting, 2026-08-01.)
 
-  nil means RUNNING, never \"exited with no status\" — a process always exits
-  with a status. A child killed by `kill!` has exited, so this reports whatever
-  the host recorded for a signalled process; do not read meaning into that
-  number, since the hosts do not agree on it. `kill!` itself still returns nil
-  for the same reason."
+  `if-let` on the result is safe from the usual trap: exit status 0 is TRUTHY in
+  Clojure, unlike C or a shell, so a clean exit does not read as \"no exit\".
+
+  This is the difference between a peer that DIED and one that went QUIET, which
+  `read-line!` alone cannot tell you — it returns nil for both. Without it the
+  only recourse is a timeout: wait a while, then kill the child to find out
+  whether it was ever going to answer. That is a guess standing in for a fact,
+  wrong in both directions — too short kills a slow peer, too long hangs on a
+  dead one. Asked for by the toolnexus port, which was carrying exactly that
+  guess in shipped code.
+
+  A child killed by `kill!` HAS exited, so a status exists afterwards; it is
+  whatever the host recorded for a signalled process, and the two hosts do not
+  agree on that number. Do not read meaning into it — that is also why `kill!`
+  itself returns nil."
   [child] ((:exit-code child)))
 
 ;; ------------------------------------------------------------------ stderr

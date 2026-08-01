@@ -56,7 +56,7 @@ Read this before adding anything.
   is.
 - **Not ClojureScript / `:cljr` / `:bb` / jank.** Out of scope. ClojureScript
   cannot spawn a subprocess, which rules out roughly half of what consumers need.
-- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.8.0
+- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.8.1
   at the time of writing) with the API explicitly marked unstable; `koine.route`
   and `koine.server` are the most likely to move. See `INPROGRESS.md`.
 
@@ -105,7 +105,7 @@ clojure -M:test          # JVM clojure.test suite (109 tests / 372 assertions)
 Installing the other hosts:
 
 ```bash
-go install github.com/muthuishere/cljgo/cmd/cljgo@v0.8.5   # >= v0.8.5
+go install github.com/muthuishere/cljgo/cmd/cljgo@v0.8.6   # >= v0.8.5
 ```
 
 Note `clojure -M:test` only proves the JVM. **A change is not verified until

@@ -20,6 +20,15 @@ say "cljgo - tests"
 # `cljgo test` needs the dependency resolved, which `cljgo build` does.
 ( cd cljgo-app && cljgo build >/dev/null 2>&1 && cljgo test 2>&1 | tail -3 ) || fail=1
 
+say "cljgo - tests, COMPILED"
+# The same suite through the compiled path, which is a DIFFERENT code path and
+# not a redundant run. cljgo v0.8.6 fixed a defect (#182) where `--compiled`
+# was broken for `.cljc` and `.cljgo` sources while the interpreted run stayed
+# green — the most obvious thing a dual-host consumer does, and neither cljgo's
+# suite nor koine's gate had ever executed it. Instances get fixed; this is
+# here to cover the class.
+( cd cljgo-app && cljgo test --compiled 2>&1 | tail -3 ) || fail=1
+
 say "app output, per host"
 jvm=$( cd clojure-app && DEMO_WORKDIR=/tmp/koine-demo-jvm clojure -M -m demo.app 2>/dev/null | tail -1 )
 go=$(  cd cljgo-app   && DEMO_WORKDIR=/tmp/koine-demo-go  ./demo               2>/dev/null | tail -1 )

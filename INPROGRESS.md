@@ -9,7 +9,7 @@ Read `README.md` for what koine *is*.
 
 ## TL;DR
 
-**Published and consumable: `net.clojars.muthuishere/koine 0.8.0`.** Two hosts,
+**Published and consumable: `net.clojars.muthuishere/koine 0.8.1`.** Two hosts,
 Clojure (JVM) and cljgo, both supported outright. Every seam is implemented on
 both, every conformance check is green on both, and both example projects
 consume the released artifact rather than the working tree.
