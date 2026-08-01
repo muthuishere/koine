@@ -92,8 +92,13 @@ prompt caching depends on.
 So `koine` owns encoding (~80 lines, pure Clojure, no host library) and makes
 three choices once, for every host:
 
-1. **object keys are sorted** — Clojure map iteration order is unspecified above
-   8 entries and differs between host implementations;
+1. **object keys are sorted BY CODE POINT** — Clojure map iteration order is
+   unspecified above 8 entries and differs between host implementations. Sorting
+   alone is not enough: the hosts disagree on what *sorted* means. `sort` on
+   strings compares UTF-16 code units on the JVM and UTF-8 bytes on Go, which
+   agree across the whole BMP and diverge above it — so a single emoji in a key
+   produced different bytes on the two hosts (fixed in 0.7.2). koine picks
+   code-point order, which is also UTF-8 byte order;
 2. **floats keep their fraction** — `1.0` never becomes `1`;
 3. **non-ASCII is emitted literally**; only the seven JSON escapes and `<0x20`
    are escaped. HTML characters are not — that's a Go default, not a JSON rule.
@@ -108,7 +113,7 @@ portable.
 
 **Early.** Verified on Clojure 1.12.5 and cljgo (>= v0.8.2).
 
-The JSON conformance suite passes **9/9 on both hosts** — including every
+The JSON conformance suite passes **12/12 on both hosts** — including every
 payload where the hosts' own JSON libraries diverged.
 
 ### Portability bugs this shook out
@@ -165,13 +170,13 @@ it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.7.1"}
+net.clojars.muthuishere/koine {:mvn/version "0.7.2"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.7.1"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.7.2"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
@@ -183,7 +188,7 @@ net.clojars.muthuishere/koine {:mvn/version "0.7.1"}
 > `future`, and Clojure's future-pool threads are non-daemon with a 60-second
 > keep-alive.
 >
-> **Upgrade to `0.7.1`.** Measured twice, independently: 61.07s → 0.56s here,
+> **Upgrade to `0.7.2`.** Measured twice, independently: 61.07s → 0.56s here,
 > and 1:02.00 → 2.1s on a consumer's MCP suite. cljgo was never affected.
 >
 > **Bytes, ordering, exit codes and cross-host parity are unaffected in all
@@ -191,7 +196,7 @@ net.clojars.muthuishere/koine {:mvn/version "0.7.1"}
 > you *computed* with 0.4.2 or 0.5.0 is wrong; only anything you *timed* on the
 > JVM is.
 
-**The API is unstable at `0.7.1`.** `koine.process`, `koine.route` and
+**The API is unstable at `0.7.2`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env`,
 `koine.time`, `koine.fs` and `koine.codec` are settled.
 

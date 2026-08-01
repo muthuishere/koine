@@ -45,6 +45,51 @@
     (string? k)  k
     :else        (str k)))
 
+;; ------------------------------------------------------- key ORDER is ours too
+;;
+;; Sorting is not enough: the two hosts do not agree on what sorted MEANS.
+;; `sort` on strings compares UTF-16 code units on the JVM and UTF-8 bytes on Go.
+;; Those agree across the whole BMP and diverge above it, because a supplementary
+;; character is a SURROGATE PAIR on the JVM — and a lead surrogate (0xD800-0xDBFF)
+;; is numerically BELOW U+FFFD, while the same character's UTF-8 bytes (F0 …) are
+;; ABOVE U+FFFD's (EF …).
+;;
+;; Measured 2026-08-01, {"�" 1, "😀" 2}:
+;;   jvm    {"😀":2,"�":1}
+;;   cljgo  {"�":1,"😀":2}
+;;
+;; Byte-identical output is koine's whole reason to exist — consumers depend on
+;; it for provider prompt caching, where a one-byte difference costs the cache
+;; hit. Any emoji in a key was enough to break it.
+;;
+;; So koine picks the order rather than inheriting it: by CODE POINT, which is
+;; also exactly UTF-8 byte order (UTF-8 is order-preserving), so it agrees with
+;; Go and with every other language that sorts JSON keys by their encoded bytes.
+;;
+;; The scan is pure clojure.core and needs no host call. On the JVM `nth` yields
+;; UTF-16 units, so a surrogate pair is recombined here; on cljgo `nth` already
+;; yields whole runes, so the surrogate branch is never taken and the characters
+;; pass straight through. One implementation, correct on both for different
+;; reasons.
+
+(defn- code-points
+  "`s` as a vector of code points. Portable: no host call, no interop."
+  [s]
+  (let [n (count s)]
+    (loop [i 0 acc []]
+      (if (>= i n)
+        acc
+        (let [c (int (nth s i))]
+          (if (and (>= c 0xD800) (<= c 0xDBFF) (< (inc i) n))
+            (let [lo (int (nth s (inc i)))]
+              (if (and (>= lo 0xDC00) (<= lo 0xDFFF))
+                (recur (+ i 2)
+                       (conj acc (+ 0x10000
+                                    (* 0x400 (- c 0xD800))
+                                    (- lo 0xDC00))))
+                (recur (inc i) (conj acc c))))
+            (recur (inc i) (conj acc c))))))))
+
 (declare write-str)
 
 (defn- pair [[k v]]
@@ -66,7 +111,8 @@
                       ;; a float always keeps its fraction: 1.0 stays "1.0",
                       ;; never "1" (which would change the JSON type).
                       (if (re-find #"[.eE]" s) s (str s ".0")))
-    (map? x)        (str "{" (str/join "," (map pair (sort-by (comp key->str first) x))) "}")
+    ;; sorted by CODE POINT, not by the host's idea of string order — see above
+    (map? x)        (str "{" (str/join "," (map pair (sort-by (comp code-points key->str first) x))) "}")
     (or (sequential? x) (set? x))
     (str "[" (str/join "," (map write-str x)) "]")
     :else           (str "\"" (esc (str x)) "\"")))

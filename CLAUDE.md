@@ -56,7 +56,7 @@ Read this before adding anything.
   is.
 - **Not ClojureScript / `:cljr` / `:bb` / jank.** Out of scope. ClojureScript
   cannot spawn a subprocess, which rules out roughly half of what consumers need.
-- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.7.1
+- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.7.2
   at the time of writing) with the API explicitly marked unstable; `koine.route`
   and `koine.server` are the most likely to move. See `INPROGRESS.md`.
 
@@ -193,9 +193,18 @@ Each of these looked fine on the JVM and broke elsewhere. Treat them as rules.
 Both encode and decode are pure `clojure.core`, no host library, no dependency.
 Three choices are made once for every host and must not drift:
 
-1. **Object keys are sorted** — map iteration order is unspecified above 8
-   entries and differs per host. Consumers rely on this for byte-identical
-   prompt prefixes (provider prompt caching).
+1. **Object keys are sorted BY CODE POINT** — map iteration order is unspecified
+   above 8 entries and differs per host. Consumers rely on this for
+   byte-identical prompt prefixes (provider prompt caching).
+
+   Sorting is not sufficient, and this cost a real bug: the hosts disagree on
+   what *sorted* means. `sort` compares UTF-16 code units on the JVM and UTF-8
+   bytes on Go. They agree across the entire BMP — which is why every
+   conformance case passed for months — and diverge above it, because a
+   supplementary character is a surrogate pair whose lead unit is BELOW U+FFFD
+   while its UTF-8 bytes are ABOVE. One emoji in a key was enough to break
+   byte-identity. koine now sorts by code point (== UTF-8 byte order) via a
+   pure-`clojure.core` scan; `conformance` covers it. Fixed in 0.7.2.
 2. **Floats keep their fraction** — `1.0` never becomes `1`. Go's
    `encoding/json` drops it, which silently changes the JSON *type* under a
    `"type":"number"` schema.
