@@ -254,6 +254,31 @@
   as two separate things, 2026-07-31."
   [child] ((:kill! child)))
 
+(defn exit-code
+  "The status the child exited with, or nil while it is still running.
+
+  This is the difference between a peer that DIED and a peer that went QUIET,
+  and `read-line!` alone cannot tell you: it returns nil for both. A transport
+  reading nil has two very different situations to distinguish —
+
+      (when (nil? (proc/read-line! c))
+        (if-let [code (proc/exit-code c)]
+          (peer-died code)        ; it exited; `code` says how
+          (still-running c)))     ; stdout closed or is merely idle
+
+  Without it the only recourse is a timeout — waiting a while and then killing
+  the child to find out whether it was ever going to answer. That is a guess
+  standing in for a fact, and it is wrong in both directions: too short kills a
+  slow peer, too long hangs on a dead one. Asked for by the toolnexus port,
+  whose MCP transport was carrying exactly that guess in shipped code.
+
+  nil means RUNNING, never \"exited with no status\" — a process always exits
+  with a status. A child killed by `kill!` has exited, so this reports whatever
+  the host recorded for a signalled process; do not read meaning into that
+  number, since the hosts do not agree on it. `kill!` itself still returns nil
+  for the same reason."
+  [child] ((:exit-code child)))
+
 ;; ------------------------------------------------------------------ stderr
 ;;
 ;; A child's stderr MUST be drained, whether or not anyone reads it. It is not a
@@ -331,6 +356,10 @@
         {:send-line!   (fn [s] (.write out (str s "\n")) (.flush out) nil)
          :read-line!   (fn [] (.readLine in))
          :alive?       (fn [] (.isAlive p))
+         ;; `.exitValue` THROWS while the process runs, so it is guarded rather
+         ;; than caught — a catch here would need a host-specific class name,
+         ;; which is the thing this file exists to avoid.
+         :exit-code    (fn [] (when-not (.isAlive p) (.exitValue p)))
          :stderr-lines (fn [] @sink)
          :kill!        (fn [] (.destroyForcibly p) (.waitFor p) nil)
          :close!       (fn [] (.close out) (.waitFor p))})
@@ -367,6 +396,14 @@
         {:send-line!   (fn [s] (cljg.stream/write-line (:in p) (str s)) nil)
          :read-line!   (fn [] (cljg.stream/read-line (:out p)))
          :alive?       (fn [] (nil? @exited))
+         ;; The reaper's atom, not cljgo's native :exit-code. cljgo v0.8.5 ships
+         ;; both :alive? and :exit-code, and koine should normally consume the
+         ;; upstream fix rather than keep its own — but the reaper is not a
+         ;; workaround for a bug here, it is what already makes `alive?` honest,
+         ;; and it holds the single permitted call to (:wait p). Reading the same
+         ;; atom keeps ONE source of truth for "has it exited"; switching to the
+         ;; native pair would mean two, which is how they drift.
+         :exit-code    (fn [] @exited)
          :stderr-lines (fn [] @sink)
          :kill!        (fn [] ((:kill p)) @exit-p nil)
          :close!       (fn [] (cljg.stream/close (:in p)) @exit-p)})

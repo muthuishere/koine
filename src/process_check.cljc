@@ -157,6 +157,41 @@
        ;; and close! must still hand back the code the child chose
        :exit (proc/close! c)})))
 
+;; ------------------------------- the distinction a transport actually needs
+;;
+;; `read-line!` returns nil for BOTH "the peer died" and "the peer has nothing
+;; to say", and a transport must tell them apart. Before `exit-code` the only
+;; recourse was a timeout — wait a while, then kill the child to find out
+;; whether it was ever going to answer — which is a guess standing in for a
+;; fact, wrong in both directions. The toolnexus port was carrying that guess in
+;; shipped code.
+;;
+;; Two children, deliberately: one that EXITS with a status, and one that is
+;; alive and simply silent. A test that only covered the dead one would pass
+;; with `exit-code` hardcoded to a number.
+(def dead-vs-quiet
+  (when spawn?
+    (let [d (proc/spawn ["sh" "-c" "printf 'one\n'; exit 3"])
+          q (proc/spawn ["sh" "-c" "printf 'one\n'; sleep 30"])]
+      (proc/read-line! d)                       ; consume the line
+      (proc/read-line! q)
+      (let [d-eof (proc/read-line! d)           ; nil: it exited
+            d-code (loop [n 0]                  ; reaping is asynchronous
+                     (if (or (> n 50) (some? (proc/exit-code d)))
+                       (proc/exit-code d)
+                       (do (ktime/sleep! 20) (recur (inc n)))))
+            ;; the quiet one is still running and must report nil, NOT a status
+            q-code (proc/exit-code q)
+            q-alive (proc/alive? q)]
+        (proc/kill! q)
+        {:d-eof d-eof :d-code d-code :q-code q-code :q-alive q-alive
+         ;; after a kill the child HAS exited, so a status exists — the number
+         ;; itself differs per host and is deliberately not asserted
+         :q-after (loop [n 0]
+                    (if (or (> n 50) (some? (proc/exit-code q)))
+                      (some? (proc/exit-code q))
+                      (do (ktime/sleep! 20) (recur (inc n)))))}))))
+
 (def cases
   [["sh-out"        (:out echoed)                 "hi\n"]
    ["sh-exit-0"     (:exit echoed)                0]
@@ -223,7 +258,17 @@
    ;; the divergence itself: false on the JVM, true on cljgo, until the reaper
    ["self-exit-dead"  (:alive self-exit)          (when spawn? false)]
    ;; reaping must not eat the exit code close! is supposed to return
-   ["self-exit-code"  (:exit self-exit)           (when spawn? 0)]])
+   ["self-exit-code"  (:exit self-exit)           (when spawn? 0)]
+
+   ;; --- dead peer vs quiet peer: read-line! nil means both, exit-code splits them ---
+   ["dead-eof"        (:d-eof dead-vs-quiet)      nil]
+   ["dead-has-status" (:d-code dead-vs-quiet)     (when spawn? 3)]
+   ;; the one that matters most: a LIVE but silent child must report nil, not a
+   ;; status. Hardcoding a number would pass the case above and fail here.
+   ["quiet-no-status" (:q-code dead-vs-quiet)     nil]
+   ["quiet-is-alive"  (:q-alive dead-vs-quiet)    (when spawn? true)]
+   ;; after kill! a status EXISTS (the value differs per host, so only presence)
+   ["killed-has-status" (:q-after dead-vs-quiet)  (when spawn? true)]])
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))

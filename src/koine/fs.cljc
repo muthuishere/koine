@@ -107,6 +107,45 @@
       (delete! p)))
   nil)
 
+(defn real-path
+  "`path` with every symlink resolved, as an absolute, cleaned path. Throws if
+  `path` does not exist.
+
+  Unlike making a path absolute, this TOUCHES THE FILESYSTEM — that is the whole
+  point, and it is why `cljg.io/absolute` (Go's `filepath.Abs`) is not a
+  substitute: `Abs` cleans a path lexically and never follows a link, while
+  returning something that looks canonical.
+
+  Use it to canonicalise before comparing two paths, and to guard a directory
+  walk against a symlink CYCLE:
+
+      (loop [[d & more] roots seen #{}]
+        (let [c (fs/real-path d)]
+          (if (contains? seen c)
+            (recur more seen)            ; already been here — do not descend
+            (recur (concat more (fs/list-tree d)) (conj seen c)))))
+
+  Without it there is no cycle guard at all, and `ln -s ../.. loop` makes a walk
+  run forever — `list-tree` FOLLOWS directory symlinks on both hosts, verified.
+
+  Note the result may differ from the input in more than the links: macOS
+  resolves /tmp to /private/tmp, for instance. That is canonicalisation doing
+  its job — compare canonical paths to canonical paths, never to raw input.
+
+  A MISSING path throws on both hosts, and koine has to insist on that: cljgo
+  throws by itself, while the JVM's `.getCanonicalPath` happily cleans a path
+  that is not there and hands back something that LOOKS canonical. Returning
+  that would be the worst outcome — a caller cannot tell a resolved path from an
+  unresolved one, so a cycle guard would silently stop guarding."
+  [path]
+  (let [p (str path)]
+    (when-not (exists? p)
+      (throw (ex-info (str "koine.fs/real-path: no such path: " p) {:path p})))
+    #?(:clj   (.getCanonicalPath (java.io.File. ^String p))
+       :cljgo (str (cio/real-path p))
+       :default (throw (ex-info "koine.fs/real-path: no implementation for this host; add a branch in koine/fs.cljc"
+                                {:path p})))))
+
 (defn read-file
   "The whole file at `path` as a string (UTF-8)."
   [path]

@@ -41,13 +41,15 @@
   #?(:clj   #{:json/read-write :env/get-env :time/clock :time/iso
               :fs/text :fs/bytes :codec/base64-string :codec/base64-bytes
               :process/sh :process/spawn :process/stderr-capture
-              :process/timeout :process/kill :fs/mutate
+              :process/timeout :process/kill :process/exit-code
+              :fs/mutate :fs/real-path
               :http/request :http/timeout
               :stream/sse :route/router :server/serve}
      :cljgo #{:json/read-write :env/get-env :time/clock :time/iso
               :fs/text :fs/bytes :codec/base64-string :codec/base64-bytes
               :process/sh :process/spawn :process/stderr-capture
-              :process/timeout :process/kill :fs/mutate
+              :process/timeout :process/kill :process/exit-code
+              :fs/mutate :fs/real-path
               :http/request :http/timeout
               :stream/sse :route/router :server/serve}
      :default #{}))

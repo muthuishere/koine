@@ -80,7 +80,16 @@
                              " && ln -s d dirlink")])
     {:good   (fs/exists? (str link-root "/goodlink"))
      :broken (fs/exists? (str link-root "/brokenlink"))
-     :dir    (fs/directory? (str link-root "/dirlink"))}))
+     :dir    (fs/directory? (str link-root "/dirlink"))
+     ;; real-path RESOLVES the link — the thing `absolute` cannot do, and the
+     ;; only way to guard a walk against a cycle
+     :real   (fs/real-path (str link-root "/dirlink"))
+     :real-d (fs/real-path (str link-root "/d"))
+     ;; canonicalising twice must be stable, or it is useless as a set key
+     :stable (= (fs/real-path (str link-root "/dirlink"))
+                (fs/real-path (fs/real-path (str link-root "/dirlink"))))
+     :missing (try (fs/real-path (str link-root "/nope")) :no-throw
+                   (catch Throwable _ :threw))}))
 (def txts (fs/find-files root ".txt"))
 (def skills (fs/find-files root ".skill.md"))
 
@@ -144,7 +153,18 @@
    ;; symlinks are followed, identically, on both hosts
    ["link-good"     (:good link-probe)                          true]
    ["link-broken"   (:broken link-probe)                        false]
-   ["link-to-dir"   (:dir link-probe)                           true]])
+   ["link-to-dir"   (:dir link-probe)                           true]
+
+   ;; real-path: a link and its target must canonicalise to the SAME path.
+   ;; Asserted as equality rather than against a literal, because the canonical
+   ;; form is host- and OS-dependent (macOS resolves /tmp to /private/tmp) —
+   ;; the PROPERTY is what koine guarantees, not the string.
+   ["real-resolves-link" (= (:real link-probe) (:real-d link-probe)) true]
+   ["real-is-absolute"   (cstr/starts-with? (str (:real link-probe)) "/") true]
+   ["real-idempotent"    (:stable link-probe)                   true]
+   ;; a path that does not exist must THROW, never quietly return the input —
+   ;; a caller could not otherwise tell canonical from unresolved
+   ["real-missing-throws" (:missing link-probe)                 :threw]])
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))
