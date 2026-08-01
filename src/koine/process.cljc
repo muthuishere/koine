@@ -59,21 +59,25 @@
      :cljgo (future (f))
      :default (throw (ex-info "koine.process: no async primitive for this host; add a branch in koine/process.cljc" {}))))
 
-(defn- await-val
-  "Poll `a` until it holds a non-nil value, or `ms` elapses. Returns the value
-  or nil.
+(defn- await-thunk
+  "Call `f` until it returns non-nil, or `ms` elapses. Returns that value or nil.
 
   Polling rather than `(deref p ms default)`: the 3-arity blocking deref only
   reached cljgo main on 2026-07-31 and is not in any release, so depending on it
   would demand consumers build cljgo from source. A 5 ms poll costs nothing next
   to a subprocess and works on every host koine supports today."
-  [a ms]
+  [f ms]
   (let [deadline (+ (ktime/mono-ms) ms)]
     (loop []
-      (or @a
+      (or (f)
           (when (< (ktime/mono-ms) deadline)
             (ktime/sleep! 5)
             (recur))))))
+
+(defn- await-val
+  "Poll the atom `a` until it holds a non-nil value, or `ms` elapses."
+  [a ms]
+  (await-thunk (fn [] @a) ms))
 
 (defn- await-atom
   "True once `a` holds a non-nil value; false if `ms` elapses first."
@@ -293,8 +297,88 @@
   A child killed by `kill!` HAS exited, so a status exists afterwards; it is
   whatever the host recorded for a signalled process, and the two hosts do not
   agree on that number. Do not read meaning into it — that is also why `kill!`
-  itself returns nil."
+  itself returns nil.
+
+  Most callers want `await-exit!` instead — see below."
   [child] ((:exit-code child)))
+
+(defn stderr-lines
+  "The child's most recent stderr lines (up to 200), oldest first, as a vector.
+
+  Never blocks — stderr is drained from the moment the child starts, so this is
+  a snapshot of a buffer someone else is filling.
+
+  Which is exactly why `[]` DOES NOT MEAN the child wrote nothing. It means
+  nothing has arrived HERE YET. The drain runs on a background thread, so it is
+  eventually consistent: a child can have written plenty and exited, and this
+  can still be empty for as long as the drain takes to catch up. Reading it once
+  and concluding \"no stderr\" is the same race as reading `exit-code` once and
+  concluding \"still running\".
+
+  If you are collecting a crash report, poll until it settles:
+
+      (loop [n 0]
+        (let [e (proc/stderr-lines c)]
+          (if (or (> n 50) (seq e))
+            e
+            (do (ktime/sleep! 20) (recur (inc n))))))
+
+  koine's own `process_check` has always polled like that, and an earlier
+  version of this docstring said `[]` meant the child had written nothing —
+  advice koine did not follow itself. Found by applying cljgo's generalisation
+  of the same defect in `exit-code`: wait on a callback, then assert on state
+  published after it. 2026-08-01."
+  [child]
+  (if-let [f (:stderr-lines child)] (f) []))
+
+;; ------------------------------------------------ waiting, as API not advice
+;;
+;; `exit-code` and `stderr-lines` are honest non-blocking snapshots, and both
+;; have a nil/empty answer that means "not yet" rather than "no". Twice koine
+;; shipped a docstring telling callers to poll around that, and twice the
+;; docstring was wrong while the library and its tests were right — cljgo caught
+;; the first, and koine found the second only by applying cljgo's generalisation
+;; to itself.
+;;
+;; Advice is the weakest possible fix: nothing verifies it, and a consumer who
+;; does not read it writes the race. So the polling loop those docstrings
+;; described is now a FUNCTION, tested like everything else. The snapshots stay
+;; for callers running their own loop; the correct thing is the easy thing.
+
+(def ^:private settle-ms
+  "Default deadline for the `await-*` fns. Long enough for a host to reap a
+  child that has already exited, short enough that a caller who guessed wrong
+  finds out quickly."
+  1000)
+
+(defn await-exit!
+  "Wait up to `ms` (default 1000) for the child to be seen to exit, and return
+  its status — or nil if the deadline passes first.
+
+  This is what a transport wants after `read-line!` returns nil:
+
+      (when (nil? (proc/read-line! c))
+        (if-let [code (proc/await-exit! c)]
+          (peer-died code)          ; it exited, and `code` says how
+          (still-quiet c)))         ; still alive after the deadline
+
+  nil here is a real answer — \"not within `ms`\" — where a nil from
+  `exit-code` only ever meant \"not this instant\". Use `exit-code` directly
+  when you are driving your own loop and want the snapshot."
+  ([child] (await-exit! child settle-ms))
+  ([child ms] (await-thunk (fn [] ((:exit-code child))) ms)))
+
+(defn await-stderr
+  "Wait up to `ms` (default 1000) for the child's stderr to produce anything,
+  and return the lines — or [] if the deadline passes with none.
+
+  Use this when collecting a crash report: the drain is on a background thread,
+  so reading `stderr-lines` the instant a child dies routinely returns [] for a
+  child that wrote plenty. That is the failure this exists to remove."
+  ([child] (await-stderr child settle-ms))
+  ([child ms]
+   (or (await-thunk (fn [] (let [e (stderr-lines child)] (when (seq e) e))) ms)
+       [])))
 
 ;; ------------------------------------------------------------------ stderr
 ;;
@@ -335,35 +419,6 @@
          (swap! sink ring-conj line)
          (recur)))))
   nil)
-
-(defn stderr-lines
-  "The child's most recent stderr lines (up to 200), oldest first, as a vector.
-
-  Never blocks — stderr is drained from the moment the child starts, so this is
-  a snapshot of a buffer someone else is filling.
-
-  Which is exactly why `[]` DOES NOT MEAN the child wrote nothing. It means
-  nothing has arrived HERE YET. The drain runs on a background thread, so it is
-  eventually consistent: a child can have written plenty and exited, and this
-  can still be empty for as long as the drain takes to catch up. Reading it once
-  and concluding \"no stderr\" is the same race as reading `exit-code` once and
-  concluding \"still running\".
-
-  If you are collecting a crash report, poll until it settles:
-
-      (loop [n 0]
-        (let [e (proc/stderr-lines c)]
-          (if (or (> n 50) (seq e))
-            e
-            (do (ktime/sleep! 20) (recur (inc n))))))
-
-  koine's own `process_check` has always polled like that, and an earlier
-  version of this docstring said `[]` meant the child had written nothing —
-  advice koine did not follow itself. Found by applying cljgo's generalisation
-  of the same defect in `exit-code`: wait on a callback, then assert on state
-  published after it. 2026-08-01."
-  [child]
-  (if-let [f (:stderr-lines child)] (f) []))
 
 (defn spawn
   "Start `command` (a vector) as a LONG-LIVED child with piped stdin/stdout and

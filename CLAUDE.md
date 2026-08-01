@@ -56,7 +56,7 @@ Read this before adding anything.
   is.
 - **Not ClojureScript / `:cljr` / `:bb` / jank.** Out of scope. ClojureScript
   cannot spawn a subprocess, which rules out roughly half of what consumers need.
-- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.8.2
+- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.9.0
   at the time of writing) with the API explicitly marked unstable; `koine.route`
   and `koine.server` are the most likely to move. See `INPROGRESS.md`.
 

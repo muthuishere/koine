@@ -192,6 +192,33 @@
                       (some? (proc/exit-code q))
                       (do (ktime/sleep! 20) (recur (inc n)))))}))))
 
+;; ------------------------------------- the polling loop, as API not advice
+;;
+;; koine twice shipped a docstring telling callers to poll around a snapshot
+;; whose nil/empty answer means "not yet" rather than "no", and twice the
+;; docstring was wrong while the library and its tests were right. `await-exit!`
+;; and `await-stderr` are that loop as a function, so it gets tested like
+;; everything else instead of being advice nobody verifies.
+;;
+;; The case that earns its keep is the SECOND one: a still-running child must
+;; make `await-exit!` return nil after the deadline. A version that simply
+;; blocked until the child died would pass the first case and hang here.
+(def awaiting
+  (when spawn?
+    (let [d (proc/spawn ["sh" "-c" "printf 'x\n' >&2; exit 5"])
+          q (proc/spawn ["sh" "-c" "sleep 30"])
+          t0 (ktime/mono-ms)
+          q-code (proc/await-exit! q 200)      ; must give up, not block
+          waited (- (ktime/mono-ms) t0)]
+      (let [r {:d-code (proc/await-exit! d 2000)
+               :d-err  (proc/await-stderr d 2000)
+               :q-code q-code
+               :q-bounded (< waited 2000)
+               ;; a child with no stderr must return [] at the deadline, not hang
+               :none   (proc/await-stderr (proc/spawn ["sh" "-c" "sleep 30"]) 100)}]
+        (proc/kill! q)
+        r))))
+
 (def cases
   [["sh-out"        (:out echoed)                 "hi\n"]
    ["sh-exit-0"     (:exit echoed)                0]
@@ -268,7 +295,17 @@
    ["quiet-no-status" (:q-code dead-vs-quiet)     nil]
    ["quiet-is-alive"  (:q-alive dead-vs-quiet)    (when spawn? true)]
    ;; after kill! a status EXISTS (the value differs per host, so only presence)
-   ["killed-has-status" (:q-after dead-vs-quiet)  (when spawn? true)]])
+   ["killed-has-status" (:q-after dead-vs-quiet)  (when spawn? true)]
+
+   ;; --- await-exit! / await-stderr: the loop the docstrings used to describe ---
+   ["await-exit-status"  (:d-code awaiting)       (when spawn? 5)]
+   ["await-stderr-lines" (vec (:d-err awaiting))  (when spawn? ["x"])]
+   ;; nil is a REAL answer here — "not within ms" — where exit-code's nil only
+   ;; ever meant "not this instant"
+   ["await-exit-gives-up" (:q-code awaiting)      nil]
+   ;; and it must actually give up, not block until the child dies
+   ["await-exit-bounded"  (:q-bounded awaiting)   (when spawn? true)]
+   ["await-stderr-empty"  (:none awaiting)        (when spawn? [])]])
 
 (let [fails (remove (fn [[_ got want]] (= got want)) cases)]
   (doseq [[l got want] fails] (println "  FAIL" l "got" (pr-str got) "want" (pr-str want)))
