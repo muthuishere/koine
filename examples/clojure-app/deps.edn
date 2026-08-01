@@ -8,7 +8,7 @@
 ;; JSON with koine alone.
 {:paths ["src"]
  :deps  {org.clojure/clojure           {:mvn/version "1.12.5"}
-         net.clojars.muthuishere/koine {:mvn/version "0.7.2"}}
+         net.clojars.muthuishere/koine {:mvn/version "0.7.3"}}
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps  {io.github.cognitect-labs/test-runner

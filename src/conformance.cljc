@@ -28,6 +28,19 @@
    ;; whatever koine currently does, including a bug. (Point taken from the
    ;; toolnexus port, which had a payload consistent across three runtimes and
    ;; wrong on all of them.)
+   ;; DIFFERENT-LENGTH keys, and this case is the reason it exists: every
+   ;; ordering case here originally used equal-length keys, so none of them
+   ;; could see that 0.7.2 sorted by LENGTH first (clojure.core `compare` on
+   ;; vectors compares count before contents). "artifacts" landed after
+   ;; "config" — plain ASCII, the commonest possible input — on BOTH hosts
+   ;; consistently, so the cross-host check stayed green while the output was
+   ;; simply wrong. Derived expectation: 'a' is 97 and 'c' is 99, so "artifacts"
+   ;; leads regardless of length.
+   ["order-lengths" (json/write-str {"config" 2 "artifacts" 1 "a" 3})
+    "{\"a\":3,\"artifacts\":1,\"config\":2}"]
+   ;; a prefix sorts before its extension
+   ["order-prefix"  (json/write-str {"abc" 2 "ab" 1})  "{\"ab\":1,\"abc\":2}"]
+
    ["order-supplementary" (json/write-str {"�" 1 "😀" 2})
     "{\"�\":1,\"😀\":2}"]
    ;; and the ASCII/supplementary pair, same rule: "a" is 97, so it leads

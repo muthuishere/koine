@@ -72,6 +72,25 @@
 ;; pass straight through. One implementation, correct on both for different
 ;; reasons.
 
+(defn- cp-compare
+  "Lexicographic order over two code-point vectors: element by element, and a
+  prefix sorts before its extension.
+
+  This exists because `compare` on vectors is NOT lexicographic — clojure.core
+  compares vectors by COUNT first, so `[97 114 116]` sorts AFTER `[99 111]` and
+  \"artifacts\" landed after \"config\". koine 0.7.2 shipped exactly that bug
+  while fixing the surrogate one, and every conformance case added with it used
+  EQUAL-LENGTH keys, so none could see it. Ordinary ASCII keys of different
+  lengths were mis-ordered on both hosts — consistently, which is worse, because
+  the hosts agreed and the cross-host check stayed green."
+  [a b]
+  (let [n (min (count a) (count b))]
+    (loop [i 0]
+      (if (= i n)
+        (compare (count a) (count b))
+        (let [x (nth a i) y (nth b i)]
+          (if (= x y) (recur (inc i)) (compare x y)))))))
+
 (defn- code-points
   "`s` as a vector of code points. Portable: no host call, no interop."
   [s]
@@ -111,8 +130,10 @@
                       ;; a float always keeps its fraction: 1.0 stays "1.0",
                       ;; never "1" (which would change the JSON type).
                       (if (re-find #"[.eE]" s) s (str s ".0")))
-    ;; sorted by CODE POINT, not by the host's idea of string order — see above
-    (map? x)        (str "{" (str/join "," (map pair (sort-by (comp code-points key->str first) x))) "}")
+    ;; sorted by CODE POINT with an explicit LEXICOGRAPHIC comparator — not the
+    ;; host's string order (differs above the BMP) and not `compare` on the
+    ;; vectors (length-first). Both traps are documented above.
+    (map? x)        (str "{" (str/join "," (map pair (sort-by (comp code-points key->str first) cp-compare x))) "}")
     (or (sequential? x) (set? x))
     (str "[" (str/join "," (map write-str x)) "]")
     :else           (str "\"" (esc (str x)) "\"")))
