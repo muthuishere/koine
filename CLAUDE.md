@@ -56,7 +56,7 @@ Read this before adding anything.
   is.
 - **Not ClojureScript / `:cljr` / `:bb` / jank.** Out of scope. ClojureScript
   cannot spawn a subprocess, which rules out roughly half of what consumers need.
-- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.9.0
+- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.9.1
   at the time of writing) with the API explicitly marked unstable; `koine.route`
   and `koine.server` are the most likely to move. See `INPROGRESS.md`.
 
@@ -71,6 +71,8 @@ Read this before adding anything.
 | `test/koine/*_test.cljc` | `clojure.test` suites. **JVM only.** |
 | `run-conformance.sh` | Runs every check on every installed host, skipping the ones you don't have. |
 | `docs/cljgo-requests.md` | What koine needs from cljgo, ranked, with evidence. |
+| `docs/adr/` | Decisions with their evidence. ADR 0001 is the check-discipline one. |
+| `spikes/` | Measurements. Numbers, growth, and what is NOT claimed. |
 | `INPROGRESS.md` | Current state + the road to a first Clojars release. |
 
 ## The prime directive

@@ -128,7 +128,18 @@
         :headers (into {} (map (fn [[k v]] [k (first v)]) (.map (.headers res))))})
 
      :cljgo
-     (let [r (gohttp/request (cond-> {:method method :url url :timeout-ms timeout-ms}
+     ;; `:timeout`, NOT `:timeout-ms`. cljgo's key is `:timeout`; koine passed
+     ;; `:timeout-ms` from 0.1.0 until 2026-08-01, cljgo ignored the unknown key
+     ;; without complaint, and every HTTP deadline on this host silently did
+     ;; nothing — a request that should have been bounded at 150 ms ran the full
+     ;; 1500 ms and returned a perfectly plausible 200. Found by the toolnexus
+     ;; port, which probed four spellings against a deliberately slow server
+     ;; rather than reporting "koine's timeout doesn't work".
+     ;;
+     ;; No catch is needed here: cljgo THROWS on timeout where the JVM does too,
+     ;; `request` wraps both, and `classify` already maps "deadline exceeded" to
+     ;; :timeout. That is why this was one word.
+     (let [r (gohttp/request (cond-> {:method method :url url :timeout timeout-ms}
                                headers (assoc :headers headers)
                                body    (assoc :body body)))]
        {:status (:status r) :body (:body r) :headers (:headers r)})

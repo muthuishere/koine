@@ -130,10 +130,25 @@
                       ;; a float always keeps its fraction: 1.0 stays "1.0",
                       ;; never "1" (which would change the JSON type).
                       (if (re-find #"[.eE]" s) s (str s ".0")))
-    ;; sorted by CODE POINT with an explicit LEXICOGRAPHIC comparator — not the
+    ;; Sorted by CODE POINT with an explicit LEXICOGRAPHIC comparator — not the
     ;; host's string order (differs above the BMP) and not `compare` on the
     ;; vectors (length-first). Both traps are documented above.
-    (map? x)        (str "{" (str/join "," (map pair (sort-by (comp code-points key->str first) cp-compare x))) "}")
+    ;;
+    ;; DECORATE-SORT-UNDECORATE, and it is not premature. `sort-by` applies its
+    ;; key-fn ONCE PER COMPARISON, so the naive form scanned every key O(n log n)
+    ;; times. Measured 2026-08-01 (spikes/s01_json_scaling.cljc): on cljgo the
+    ;; cost PER KEY rose 689 -> 1436 us as a map grew 100 -> 6400 entries,
+    ;; tracking log n exactly. The JVM hid it — flat within noise — because
+    ;; `nth` on a UTF-16 string is O(1) there. One host paid, and only at size.
+    ;;
+    ;; Scanning each key once restores flat per-key cost. `first` on the
+    ;; decorated pair is O(1), so the comparator stays cheap.
+    (map? x)        (let [decorated (map (fn [e] [(code-points (key->str (key e))) e])
+                                         x)]
+                      (str "{"
+                           (str/join "," (map (fn [d] (pair (nth d 1)))
+                                              (sort-by (fn [d] (nth d 0)) cp-compare decorated)))
+                           "}"))
     (or (sequential? x) (set? x))
     (str "[" (str/join "," (map write-str x)) "]")
     :else           (str "\"" (esc (str x)) "\"")))

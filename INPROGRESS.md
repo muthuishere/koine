@@ -9,7 +9,7 @@ Read `README.md` for what koine *is*.
 
 ## TL;DR
 
-**Published and consumable: `net.clojars.muthuishere/koine 0.9.0`.** Two hosts,
+**Published and consumable: `net.clojars.muthuishere/koine 0.9.1`.** Two hosts,
 Clojure (JVM) and cljgo, both supported outright. Every seam is implemented on
 both, every conformance check is green on both, and both example projects
 consume the released artifact rather than the working tree.
@@ -39,7 +39,7 @@ port reporting them; see below.
 | `./examples/run-both.sh` | both consumer projects agree, on the Clojars artifact |
 
 Conformance per check, both hosts: conformance 14/14 · bytes 17/17 · codec 11/11 ·
-env 12/12 · fs 39/39 · http 9/9 · mcp 5/5 · process 48/48 · route 43/43 ·
+env 12/12 · fs 39/39 · http 13/13 · mcp 5/5 · process 48/48 · route 43/43 ·
 server 10/10 · shadow 1/1 · stream 34/34 · time 28/28.
 
 `clojure -M:test` only proves the JVM. A change is not verified until
@@ -59,7 +59,7 @@ cross-host conformance check.
 | `koine.server` | `server_check` 10/10 |
 | `koine.env` | `env_check` 12/12 |
 | `koine.process` | `process_check` 48/48 + `mcp_check` 5/5 |
-| `koine.http` | `http_check` 9/9 |
+| `koine.http` | `http_check` 13/13 |
 | `koine.fs` | `fs_check` 39/39 + `bytes_check` 17/17 |
 | `koine.codec` | `codec_check` 11/11 |
 | `koine.host` | used by every check to decide what to run |
