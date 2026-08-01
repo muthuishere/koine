@@ -339,9 +339,29 @@
 (defn stderr-lines
   "The child's most recent stderr lines (up to 200), oldest first, as a vector.
 
-  Always available — stderr is drained from the moment the child starts, so this
-  is a snapshot of a buffer that is being filled for you, not a read that could
-  block. Returns [] when the child has written nothing."
+  Never blocks — stderr is drained from the moment the child starts, so this is
+  a snapshot of a buffer someone else is filling.
+
+  Which is exactly why `[]` DOES NOT MEAN the child wrote nothing. It means
+  nothing has arrived HERE YET. The drain runs on a background thread, so it is
+  eventually consistent: a child can have written plenty and exited, and this
+  can still be empty for as long as the drain takes to catch up. Reading it once
+  and concluding \"no stderr\" is the same race as reading `exit-code` once and
+  concluding \"still running\".
+
+  If you are collecting a crash report, poll until it settles:
+
+      (loop [n 0]
+        (let [e (proc/stderr-lines c)]
+          (if (or (> n 50) (seq e))
+            e
+            (do (ktime/sleep! 20) (recur (inc n))))))
+
+  koine's own `process_check` has always polled like that, and an earlier
+  version of this docstring said `[]` meant the child had written nothing —
+  advice koine did not follow itself. Found by applying cljgo's generalisation
+  of the same defect in `exit-code`: wait on a callback, then assert on state
+  published after it. 2026-08-01."
   [child]
   (if-let [f (:stderr-lines child)] (f) []))
 
