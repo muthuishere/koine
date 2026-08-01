@@ -105,7 +105,7 @@ clojure -M:test          # JVM clojure.test suite (109 tests / 372 assertions)
 Installing the other hosts:
 
 ```bash
-go install github.com/muthuishere/cljgo/cmd/cljgo@latest   # >= v0.8.2
+go install github.com/muthuishere/cljgo/cmd/cljgo@v0.8.5   # >= v0.8.5
 ```
 
 Note `clojure -M:test` only proves the JVM. **A change is not verified until

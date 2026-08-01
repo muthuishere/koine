@@ -111,7 +111,7 @@ portable.
 
 ## Status
 
-**Early.** Verified on Clojure 1.12.5 and cljgo (>= v0.8.2).
+**Early.** Verified on Clojure 1.12.5 and cljgo **v0.8.5** (the first release koine is green on; v0.8.3 and v0.8.4 are broken for any project with a root `build.clj`).
 
 The JSON conformance suite passes **14/14 on both hosts** — including every
 payload where the hosts' own JSON libraries diverged.
