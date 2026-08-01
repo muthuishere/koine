@@ -111,14 +111,9 @@ portable.
 
 ## Status
 
-**Early.** Verified on Clojure 1.12.5 and cljgo **v0.8.8** — measured against the
-published release (`go install …@v0.8.8`, no source checkout), not a local build.
-Also green on v0.8.5 and v0.8.6.
-
-**Avoid cljgo v0.8.3 and v0.8.4.** They execute a root `build.clj` as their own
-build file, so every koine check fails there with a misleading
-`could not locate namespace clojure.tools.build.api`. v0.8.5 is the first
-release koine is green on.
+**Early.** Verified on Clojure 1.12.5 and **cljgo >= v0.8.5**, currently
+**v0.8.8** — measured against the published release (`go install …@v0.8.8`, no
+source checkout), not a local build.
 
 The JSON conformance suite passes **14/14 on both hosts** — including every
 payload where the hosts' own JSON libraries diverged.
