@@ -24,8 +24,26 @@ the published Clojars artifact and producing byte-identical output.
 
 ## 0.10.0 — 2026-08-02
 
-**Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.8.9** (released build,
-verified by Go module checksum)
+**Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.8.9** and **v0.9.0** —
+released builds, verified by Go module checksum. (v0.9.0 measured 2026-08-02,
+after the release: conformance green both hosts, examples green in all three
+legs, plus 18 AOT runs — see the v0.9.0 note below.)
+
+**On cljgo v0.9.0.** No koine change was needed. Two things were checked rather
+than assumed:
+
+- **ADR 0121 makes an unknown option a hard error** (`cljg.io/exec: unknown
+  option :timeout`). koine hands option maps to three cljg APIs — `:dir`/`:env`
+  to `cljg.process/spawn`, and `:method :url :timeout :headers :body :as` to
+  `cljg.net.http/request` — and every key is one those APIs define, so nothing
+  is rejected. Note this change would have turned koine's own 0.9.1 HTTP defect
+  from a silent no-op into a loud error, which is the point of it.
+- **#197, the AOT-only intermittent at ~1 in 4, does not reach koine.** 18 AOT
+  runs across `http_check`, `stream_check` and `process_check` on the v0.9.0
+  release binary, all green (20/20, 45/45, 48/48 each). At the stated rate the
+  probability of 18 clean runs is 0.75^18 ≈ 0.6%, so this is evidence of
+  absence on these paths — not a claim the bug is fixed, which is cljgo's to
+  make.
 
 ### Fixed (breaking: response header keys)
 

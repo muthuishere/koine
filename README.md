@@ -122,7 +122,7 @@ koine `0.10.0` is verified on:
 | host | version | how |
 |---|---|---|
 | Clojure (JVM) | 1.12.5 | `clojure -M:test` + every conformance check |
-| cljgo | **v0.8.8**, **v0.8.9** | published releases — `go install …@vX.Y.Z`, no source checkout, `CLJGO_SRC` unset, provenance read from the binary's Go module checksum |
+| cljgo | **v0.8.9**, **v0.9.0** | published releases — `go install …@vX.Y.Z`, no source checkout, `CLJGO_SRC` unset, provenance read from the binary's Go module checksum |
 
 Minimum supported cljgo is **v0.8.5**. Earlier koine releases were verified on
 v0.8.5 and v0.8.6 as well; the table names only what *this* release was measured
