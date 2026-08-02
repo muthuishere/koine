@@ -26,7 +26,10 @@
 
   Do NOT reach for `BodyHandlers/ofLines` on the JVM. It looks like the clean
   route and it is not — see the comment on the `:clj` branch."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [koine.http :as khttp]))
+
+(declare -sse-post*)
 
 ;; cljgo: the streaming client + the stream handles must be interned before
 ;; `sse-post`'s cljgo branch is reachable. A top-level reader conditional with no
@@ -97,7 +100,8 @@
 
 (defn sse-post
   "POST `body` to `url` and invoke `(on-event data-string)` once per SSE
-  `data:` line, AS IT ARRIVES. Returns `{:status n}` when the stream ends.
+  `data:` line, AS IT ARRIVES. Returns `{:status n :headers {…}}` when the
+  stream ends.
 
   `[DONE]` is delivered like any other datum — the SSE framing has no idea it
   is a sentinel, and deciding that is the caller's job, not the transport's.
@@ -105,9 +109,36 @@
   Blocks until the server closes the stream. Header values are passed through
   verbatim and never logged; they routinely carry credentials.
 
-  Throws on a host with no incremental route. It does not quietly buffer."
-  [url headers body on-event]
-  #?(:clj
+  Throws on a host with no incremental route. It does not quietly buffer.
+
+  With `opts` `{:on-open f}`, `f` is applied ONCE to `{:status n :headers {…}}`
+  as soon as the response head is available — before the first event, while the
+  stream is still open. Response header names are lowercased on every host (see
+  `koine.http/normalize-headers`); `koine.http/header` reads one case-insensitively.
+
+  Why on-open rather than the returned map: a caller may need something from the
+  head in order to answer *during* the stream. MCP streamable-HTTP is the case
+  that asked for it — the server issues `Mcp-Session-Id` in the response
+  headers, and a server→client reverse request arriving as an SSE event must be
+  answered by a SEPARATE POST carrying that id, all before the first stream
+  closes. Headers returned when the stream ends arrive strictly too late, and
+  the buffered `koine.http/request` never streams at all — so without this a
+  consumer had to choose between learning the session id and receiving events
+  incrementally. Asked for by the toolnexus MCP port, 2026-08-02.
+
+  `on-open` is APPLIED, never compared — comparing functions is not portable."
+  ([url headers body on-event]
+   (sse-post url headers body on-event nil))
+  ([url headers body on-event opts]
+   (-sse-post* url headers body on-event opts)))
+
+(defn- -sse-post* [url headers body on-event opts]
+  (let [on-open (:on-open opts)
+        open!   (fn [status hdrs]
+                  (let [head {:status status :headers (khttp/normalize-headers hdrs)}]
+                    (when on-open (on-open head))
+                    head))]
+   #?(:clj
      ;; `BodyHandlers/ofLines` is the obvious choice and it is a TRAP: measured
      ;; against a server emitting 4 events 150 ms apart, every line surfaced at
      ;; ~605 ms — the whole body first, then a replay. Same with `sendAsync`.
@@ -126,6 +157,12 @@
                                         (or body "")))
                        .build)
            res     (.send client req (java.net.http.HttpResponse$BodyHandlers/ofInputStream))
+           ;; `.send` with ofInputStream returns as soon as the HEAD is in — the
+           ;; body is still arriving — so this fires before the first event, not
+           ;; after the stream ends. That timing is the whole point; it is
+           ;; asserted by the clock in stream_check, not assumed.
+           head    (open! (.statusCode res)
+                          (into {} (map (fn [[k v]] [k (first v)]) (.map (.headers res)))))
            rdr     (java.io.BufferedReader.
                     (java.io.InputStreamReader. (.body res) "UTF-8"))]
        (try
@@ -134,7 +171,7 @@
              (emit! on-event line)
              (recur)))
          (finally (.close rdr)))
-       {:status (.statusCode res)})
+       head)
 
      :cljgo
      ;; CLOSED 2026-07-30: `cljg.net.http` grew a second shim, `-http-stream`,
@@ -158,16 +195,19 @@
                                                :as      :stream
                                                :timeout 86400000}
                                        (seq headers) (assoc :headers headers)))
-           rdr (:body r)]
+           ;; `:as :stream` returns once the head is read, over an OPEN
+           ;; resp.Body — same guarantee as the JVM branch above.
+           head (open! (:status r) (:headers r))
+           rdr  (:body r)]
        (try
          (loop []
            (when-let [line (cljg.stream/read-line rdr)]
              (emit! on-event line)
              (recur)))
          (finally (cljg.stream/close rdr)))
-       {:status (:status r)})
+       head)
 
      :default
      (throw (ex-info (str "koine.stream/sse-post: no implementation for this host; "
                           "add a branch in koine/stream.cljc")
-                     {:url url}))))
+                     {:url url})))))

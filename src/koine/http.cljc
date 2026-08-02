@@ -78,6 +78,44 @@
   [res]
   (some? (:error res)))
 
+;; ------------------------------------------------------- response headers
+;;
+;; RESPONSE HEADER NAMES ARE LOWERCASED, ALWAYS, ON EVERY HOST. The hosts do
+;; not agree natively and there is no third option: measured 2026-08-02 against
+;; one server sending `Mcp-Session-Id`,
+;;
+;;   JVM    java.net.http lowercases  -> "mcp-session-id"
+;;   cljgo  Go's http.Header canonicalises -> "Mcp-Session-Id"
+;;
+;; so `(get (:headers res) "Mcp-Session-Id")` returned the value on cljgo and
+;; NIL on the JVM, and the lowercase spelling did the exact reverse. Portable
+;; code could not read a response header at all — silently, since a missing
+;; header and a mis-cased one are both nil. Found by the toolnexus MCP port,
+;; whose session id lives in exactly such a header.
+;;
+;; Lowercase is the normal form because it is the one the wire already uses:
+;; HTTP/2 (RFC 7540 §8.1.2) REQUIRES lowercase field names, and RFC 7230 §3.2
+;; makes them case-insensitive, so no information is lost. `header` is here so
+;; a caller need not care either way.
+
+(defn normalize-headers
+  "Response headers with every name lowercased. Idempotent; nil-tolerant.
+
+  Nil-tolerant on purpose — cljgo's AOT discovery pass substitutes nil for host
+  results, so a nil-intolerant function on this path fails at BUILD time."
+  [headers]
+  (reduce (fn [m e] (assoc m (str/lower-case (str (key e))) (val e)))
+          {}
+          (or headers {})))
+
+(defn header
+  "Look up one response header, case-insensitively. `res` is a response map.
+
+  `(header res \"Mcp-Session-Id\")` works on every host and whatever case the
+  server chose."
+  [res k]
+  (get (:headers res) (str/lower-case (str (if (keyword? k) (clojure.core/name k) k)))))
+
 (defn request
   "Perform an HTTP request.
 
@@ -125,7 +163,8 @@
            res     (.send client req (java.net.http.HttpResponse$BodyHandlers/ofString))]
        {:status  (.statusCode res)
         :body    (.body res)
-        :headers (into {} (map (fn [[k v]] [k (first v)]) (.map (.headers res))))})
+        :headers (normalize-headers
+                  (into {} (map (fn [[k v]] [k (first v)]) (.map (.headers res)))))})
 
      :cljgo
      ;; `:timeout`, NOT `:timeout-ms`. cljgo's key is `:timeout`; koine passed
@@ -142,7 +181,7 @@
      (let [r (gohttp/request (cond-> {:method method :url url :timeout timeout-ms}
                                headers (assoc :headers headers)
                                body    (assoc :body body)))]
-       {:status (:status r) :body (:body r) :headers (:headers r)})
+       {:status (:status r) :body (:body r) :headers (normalize-headers (:headers r))})
 
 
      :default

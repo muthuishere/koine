@@ -56,7 +56,7 @@ Read this before adding anything.
   is.
 - **Not ClojureScript / `:cljr` / `:bb` / jank.** Out of scope. ClojureScript
   cannot spawn a subprocess, which rules out roughly half of what consumers need.
-- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.9.1
+- **Not a stable API yet.** Published as `net.clojars.muthuishere/koine` (0.10.0
   at the time of writing) with the API explicitly marked unstable; `koine.route`
   and `koine.server` are the most likely to move. See `INPROGRESS.md`.
 
@@ -117,17 +117,32 @@ non-zero on any failure and prints WHAT IT MEASURED before it runs — see below
 
 ## Cutting a release
 
-**The order is fixed: CHANGELOG → git tag → GitHub release → Clojars.** Clojars
-is last and deliberately so: it is the only irreversible step. A version can
-never be re-deployed or withdrawn there, so nothing goes to Clojars until the
-log and the release that describe it already exist and are public. Getting this
-backwards means a published artifact nobody can explain — or unpublish.
+**The order is: CHANGELOG → Clojars → examples → git tag → GitHub release.**
 
-1. **Verify, and capture what you verified against.**
+Clojars sits in the middle for one measured reason, not by preference:
+**`cljgo` resolves Maven deps from remote repositories only — it does not read
+`~/.m2`** (verified 2026-08-02: `cljgo build` in `examples/cljgo-app` against a
+locally-installed 0.10.0 → "not found in any repository", tried repo1 and
+repo.clojars.org). The cljgo example consumes the *published* artifact on
+purpose, so it physically cannot run before publishing.
+
+What that costs is bounded, and everything that CAN run before the irreversible
+step does: the 13 conformance checks on both hosts, the 109 JVM unit tests, the
+JVM example against a local `install`, **and an AOT compile of the changed
+namespaces from source** (step 1) — which is the one that matters, because 0.4.1
+was a failure that only appeared under AOT.
+
+The **tag and the GitHub release stay last**, so nothing is discoverable until
+the artifact behind it is green. If the examples fail after publish, ship a
+patch release: a Clojars version can never be re-deployed or withdrawn.
+
+1. **Verify everything that does not need Clojars, and capture what you
+   verified against.**
    ```bash
-   clojure -M:test                                     # JVM suite
-   ./examples/run-both.sh                              # the artifact, both hosts, interpreted + AOT
+   clojure -M:test                                          # JVM suite
    env -u CLJGO_SRC PATH="$HOME/go/bin:$PATH" ./run-conformance.sh
+   clojure -T:build install                                 # 0.x.y into ~/.m2
+   (cd src && cljgo build -o /tmp/aot <ns>_check.cljc && /tmp/aot)   # AOT, per changed ns
    ```
    `run-conformance.sh` prints a provenance header and **exits non-zero** if any
    host-check fails or fails to report. Take the host versions for the changelog
@@ -141,27 +156,51 @@ backwards means a published artifact nobody can explain — or unpublish.
    reporting a release-shaped version number, and believing it produced two
    claims that had to be retracted. Install the tag and put `$HOME/go/bin` first.
 
+   **Do the AOT compile even though `run-conformance.sh` was green.** It runs
+   cljgo interpreted; 0.4.1 was a bug that appeared ONLY under AOT, and single-
+   file `cljgo build` resolves koine from the source tree, so this needs no
+   published artifact. Run the resulting binary, do not just build it.
+
 2. **Update `CHANGELOG.md`** — a new section with the version, the date, the
    **`Tested against:` line copied from that header**, and what changed. A fix
-   names the defect and **who found it**; six of koine's seven shipped defects
-   were found by a consumer or a peer rather than by its own gate, and recording
-   the finder is how the gate's blind spots stay visible (ADR 0001).
+   names the defect and **who found it**; seven of koine's shipped defects were
+   found by a consumer or a peer rather than by its own gate, and recording the
+   finder is how the gate's blind spots stay visible (ADR 0001).
 
-3. **Bump `build.clj`'s `version`**, commit, `git tag vX.Y.Z`, `git push --tags`.
+3. **Bump `build.clj`'s `version`** and the two example coordinates
+   (`examples/clojure-app/deps.edn`, `examples/cljgo-app/build.cljgo`), commit.
 
-4. **Cut the GitHub release with that same section**, so the tag, the log and the
-   release notes cannot drift:
-   ```bash
-   awk '/^## X\.Y\.Z/{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/rel.md
-   gh release create vX.Y.Z --title "koine X.Y.Z" --notes-file /tmp/rel.md
-   ```
-
-5. **Then Clojars** — `clojure -T:build deploy`. Credentials come from the
+4. **Deploy to Clojars** — `clojure -T:build deploy`. Credentials come from the
    environment (`CLOJARS_USERNAME`, `CLOJARS_PASSWORD` = a deploy token); the
    value never enters a file, a command echo or this repo. The coordinate is
    `net.clojars.muthuishere/koine`: Clojars pre-verifies `net.clojars.<user>`,
    while `io.github.<user>` needs a one-time GitHub verification this group never
    had (403 on deploy, 2026-07-30).
+
+   **This is the irreversible step.** A version can never be re-deployed or
+   withdrawn; if what follows fails, the fix is a patch release.
+
+5. **Now run the examples against the published artifact**, which is the only
+   point at which the cljgo one can resolve:
+   ```bash
+   rm -f examples/cljgo-app/build.lock.edn        # or it pins the OLD version
+   env -u CLJGO_SRC PATH="$HOME/go/bin:$PATH" ./examples/run-both.sh
+   ```
+   Commit the regenerated `build.lock.edn`. **Never hand-edit that file** — it
+   is generated and carries checksums; editing the version in place leaves the
+   old checksums, the build fails, and `run-both.sh` silences the build and then
+   runs a STALE binary, reporting a divergence that is not real. That cost a
+   whole debugging session once.
+
+6. **Tag and cut the GitHub release, last** — so nothing is discoverable until
+   the artifact behind it is green:
+   ```bash
+   git tag vX.Y.Z && git push origin main --tags
+   awk '/^## X\.Y\.Z/{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/rel.md
+   gh release create vX.Y.Z --title "koine X.Y.Z" --notes-file /tmp/rel.md
+   ```
+   The release notes are the changelog section verbatim, so the tag, the log and
+   the notes cannot drift.
 
 ## When the bug is the host's, fix the host
 

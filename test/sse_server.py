@@ -49,6 +49,12 @@ class H(BaseHTTPRequestHandler):
         self.send_header("content-type", "text/event-stream")
         self.send_header("cache-control", "no-cache")
         self.send_header("connection", "close")
+        # MIXED CASE ON PURPOSE. The hosts disagree natively about response
+        # header names — java.net.http lowercases, Go's http.Header
+        # canonicalises — so an all-lowercase header could not tell a normalising
+        # koine from one that just happens to match on this host. This is the
+        # shape MCP uses for its session id.
+        self.send_header("Mcp-Session-Id", "S-1")
         self.end_headers()
 
         def w(s):

@@ -60,8 +60,8 @@ portable API, and let everything above it be plain Clojure.
 |---|---|---|
 | `koine.json` | `write-str` / `read-str` | **pure `clojure.core`** — no host code, no deps |
 | `koine.env` | `get-env` / `expand` | `System/getenv` · `cljg.system/getenv` |
-| `koine.http` | `request` / `post-json` / `failed?` | `java.net.http` · `cljg.net.http` |
-| `koine.stream` | `sse-post` / `parse-sse-line` | `BodyHandlers/ofInputStream` · `:as :stream` |
+| `koine.http` | `request` / `post-json` / `failed?` / `header` | `java.net.http` · `cljg.net.http` |
+| `koine.stream` | `sse-post` (`:on-open`) / `parse-sse-line` | `BodyHandlers/ofInputStream` · `:as :stream` |
 | `koine.process` | `sh` (`:timeout-ms`) / `spawn` / `kill!` / `exit-code` / `await-exit!` / `stderr-lines` / `await-stderr` | `ProcessBuilder` · `cljg.process` |
 | `koine.fs` | `exists?` `directory?` `list-tree` `find-files` `read-bytes` `write-bytes` `mkdirs!` `delete!` `delete-tree!` `temp-dir!` `real-path` | `java.io.File` · `java.nio` · `cljg.io` |
 | `koine.time` | `now-ms` `mono-ms` `sleep!` `iso-str` `parse-iso` | `System/nanoTime` · `cljg.date` · pure ISO |
@@ -115,7 +115,7 @@ portable.
 
 ### Tested against
 
-koine `0.9.1` is verified on:
+koine `0.10.0` is verified on:
 
 | host | version | how |
 |---|---|---|
@@ -196,13 +196,13 @@ it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.9.1"}
+net.clojars.muthuishere/koine {:mvn/version "0.10.0"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.9.1"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.10.0"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
@@ -236,7 +236,7 @@ net.clojars.muthuishere/koine {:mvn/version "0.9.1"}
 > you *computed* with 0.4.2 or 0.5.0 is wrong; only anything you *timed* on the
 > JVM is.
 
-**The API is unstable at `0.9.1`.** `koine.process`, `koine.route` and
+**The API is unstable at `0.10.0`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env`,
 `koine.time`, `koine.fs` and `koine.codec` are settled.
 

@@ -8,7 +8,7 @@ Two rules for this file, both earned:
 - **A "tested against" row states what was measured for THAT release.** A host
   version that was green for an older koine is not evidence for a newer one. Where
   the record does not exist, it says so rather than guessing.
-- **Fixes name the defect and who found it.** Six of koine's shipped bugs were
+- **Fixes name the defect and who found it.** Seven of koine's shipped bugs were
   found by a consumer or a peer rather than by its own gate — see
   [ADR 0001](docs/adr/0001-checks-must-assert-the-discriminator.md). Recording who
   caught what is how the gate's blind spots stay visible.
@@ -21,6 +21,72 @@ Verified, everywhere below, means: 13 conformance checks on both hosts, the JVM
 the published Clojars artifact and producing byte-identical output.
 
 ---
+
+## 0.10.0 — 2026-08-02
+
+**Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.8.9** (released build,
+verified by Go module checksum)
+
+### Fixed (breaking: response header keys)
+
+- **Response header names were unreadable portably.** The hosts disagree
+  natively and there was no third spelling that worked:
+
+  | host | key returned | `(get headers "Mcp-Session-Id")` |
+  |---|---|---|
+  | JVM | `mcp-session-id` — `java.net.http` lowercases | **nil** |
+  | cljgo | `Mcp-Session-Id` — Go's `http.Header` canonicalises | works |
+
+  So `koine.http/request` handed back headers no portable code could read, and
+  it failed **silently** — a missing header and a mis-cased one are both `nil`.
+  Names are now **lowercased on every host**, which is the form the wire already
+  uses (HTTP/2 requires it; RFC 7230 makes names case-insensitive, so nothing is
+  lost). New: `koine.http/header` for a case-insensitive read and
+  `koine.http/normalize-headers`.
+
+  Found by the **toolnexus** MCP port, whose session id lives in exactly such a
+  header. Seventh defect of the ADR 0001 shape, and a new dimension: no check
+  had ever asserted header key *case*, and the fixtures all used lowercase
+  header names — which one host matches by accident. The fixture now sends mixed
+  case, because a lowercase one cannot discriminate.
+
+  Note this was **not** catchable by comparing the two hosts' header maps for
+  equality: they legitimately differ (`date`, and cljgo's server adds a
+  `content-type` the JVM's does not). Only asking for a known key by a fixed
+  spelling tells the two apart.
+
+### Added
+
+- **`sse-post` surfaces the response head before the first event.**
+  `(sse-post url headers body on-event {:on-open f})` applies `f` once to
+  `{:status n :headers {…}}` as soon as the head is available, while the stream
+  is still open. `sse-post` also now returns `:headers` alongside `:status`.
+
+  The 4-arity is unchanged and still supported.
+
+  Why a callback rather than the returned map: MCP streamable-HTTP issues a
+  session id in the response headers, and a server→client reverse request
+  arriving as an SSE event must be answered by a **separate POST carrying that
+  id, before the first stream closes**. Headers returned when the stream ends
+  arrive strictly too late, and the buffered `koine.http/request` never streams —
+  so a consumer previously had to choose between learning the session id and
+  receiving events incrementally. Asked for by the toolnexus MCP port, which
+  checked what koine already had before asking.
+
+  The contract here is a **timing** one, so the check asserts the clock: that
+  `on-open` fires before the first event and leads it by more than the server's
+  gap. Verified by mutation — moving the callback to after the read loop failed
+  exactly those two cases while all 43 value assertions still passed.
+
+- `koine.host` capabilities: `:http/response-headers`, `:stream/response-head`.
+
+### Tooling
+
+- `run-conformance.sh` prints the host versions it **measured** and **exits
+  non-zero** on failure, where failure includes a check that did not report at
+  all. It reads cljgo's provenance from the binary's Go module checksum, not
+  from `cljgo version`, and says `NOT a release` for a build from a checkout or
+  a wrapper script. See [CLAUDE.md](CLAUDE.md#cutting-a-release).
 
 ## 0.9.1 — 2026-08-01
 
@@ -233,27 +299,34 @@ First release, as `net.clojars.muthuishere/koine`.
 
 ## Release process
 
-**The order is fixed: CHANGELOG → tag → GitHub release → Clojars.** Clojars is
-last because it is the only irreversible step — a version there can never be
-re-deployed or withdrawn, so nothing is published until the log and the release
-that explain it already exist.
+**The order is: CHANGELOG → Clojars → examples → tag → GitHub release.**
 
-1. **Verify.** `clojure -M:test`, `./examples/run-both.sh`, and
-   `env -u CLJGO_SRC PATH="$HOME/go/bin:$PATH" ./run-conformance.sh` — which
-   exits non-zero on any failure and prints a provenance header naming the exact
-   host versions it measured.
+Clojars sits in the middle for a measured reason: **cljgo resolves Maven deps
+from remote repositories only, not `~/.m2`**, so the cljgo example — which
+consumes the published artifact on purpose — cannot run before publishing. The
+tag and the GitHub release stay last, so nothing is discoverable until the
+artifact behind it is green.
+
+1. **Verify everything that does not need Clojars.** `clojure -M:test`,
+   `env -u CLJGO_SRC PATH="$HOME/go/bin:$PATH" ./run-conformance.sh` (exits
+   non-zero on any failure and prints the host versions it measured), and an
+   **AOT compile of each changed namespace** from source — `cljgo build` in
+   single-file mode resolves koine from the working tree, and 0.4.1 was a bug
+   that appeared only under AOT.
 2. **Copy the `Tested against:` line from that header.** Only a
    `(released build)` counts: the header asks the Go binary for its `mod`
    checksum rather than trusting `cljgo version`, because a PATH `cljgo` that
    rebuilds from a local tree reports a release-shaped number while measuring
    something else entirely. That mistake produced two retracted claims.
-3. **Add the section above**, bump `build.clj`'s `version`, commit, tag `vX.Y.Z`,
-   push.
-4. **`gh release create vX.Y.Z --notes-file <that section>`** — the GitHub
-   release carries the same text as this file, so the tag, the log and the notes
-   cannot drift.
-5. **`clojure -T:build deploy`** to Clojars, last (credentials from the
-   environment only).
+3. **Add the section above**, bump `build.clj` and both example coordinates,
+   commit.
+4. **`clojure -T:build deploy`** — the irreversible step. A Clojars version can
+   never be re-deployed or withdrawn; if what follows fails, ship a patch.
+5. **Run the examples against the published artifact.** Delete
+   `examples/cljgo-app/build.lock.edn` first so it re-pins, and commit the
+   regenerated one. Never hand-edit it.
+6. **Tag, push, and `gh release create` with that same section** — the notes are
+   the changelog verbatim, so the tag, the log and the notes cannot drift.
 
 The full version of this, with the commands, is in
 [CLAUDE.md](CLAUDE.md#cutting-a-release).

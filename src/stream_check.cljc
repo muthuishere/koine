@@ -17,9 +17,10 @@
 ;;
 ;; The base URL comes from a file rather than an env var on purpose: cljgo has
 ;; no environment access at all, and `slurp` is verified on both hosts.
-(require 'koine.stream 'koine.time 'clojure.string)
+(require 'koine.stream 'koine.time 'koine.http 'clojure.string)
 (alias 'stream 'koine.stream)
 (alias 'ktime 'koine.time)
+(alias 'khttp 'koine.http)
 (alias 'cstr 'clojure.string)
 
 ;; --- pure: parse-sse-line. Runs everywhere, including hosts that cannot stream.
@@ -51,14 +52,22 @@
 
 (defn collect
   "Run one stream, returning {:ok? :status :events [[arrival-ms data] …]} or
-  {:ok? false :msg …} on a host with no streaming route."
+  {:ok? false :msg …} on a host with no streaming route.
+
+  Also records the `:on-open` head and WHEN it fired, because the contract for
+  the head is a timing one — see the on-open cases below."
   [path headers]
-  (let [log (atom [])]
+  (let [log  (atom [])
+        open (atom nil)]
     (try
       (let [t0  (ktime/mono-ms)
             res (stream/sse-post (str base path) headers "{}"
-                                 (fn [d] (swap! log conj [(- (ktime/mono-ms) t0) d])))]
-        {:ok? true :status (:status res) :events @log})
+                                 (fn [d] (swap! log conj [(- (ktime/mono-ms) t0) d]))
+                                 {:on-open (fn [head]
+                                             (reset! open
+                                                     (assoc head :at (- (ktime/mono-ms) t0))))})]
+        {:ok? true :status (:status res) :headers (:headers res)
+         :open @open :events @log})
       ;; Catch Exception rather than Throwable, and read the
       ;; message with `ex-message`: `(str e)` prints `#object[*lang.ExceptionInfo]`
       ;; on cljgo, which would hide the very text this check exists to assert.
@@ -77,6 +86,12 @@
 ;; other endpoint here and emits garbage for these three.
 (def torn   (when (:ok? main) (collect "/split" {})))
 (def torn-data (mapv second (:events torn)))
+
+;; The 4-arity, called directly — the shape every 0.9.x consumer already uses.
+(def four-log (atom []))
+(def four (when (:ok? main)
+            (stream/sse-post (str base "/sse") {} "{}"
+                             (fn [d] (swap! four-log conj d)))))
 
 (def want-data
   ["{\"delta\":\"tok0\"}" "{\"delta\":\"tok1\"}" "{\"delta\":\"tok2\"}" "[DONE]"])
@@ -97,7 +112,45 @@
         [200 want-data]]
        ["utf8-len"    (count big)                     4000]
        ["utf8-edges"  [(subs big 0 1) (subs big (dec (count big)))] ["☃" "☃"]]
-       ["utf8-done"   (vec (map second (:events wide))) [big "[DONE]"]]])
+       ["utf8-done"   (vec (map second (:events wide))) [big "[DONE]"]]
+
+       ;; ---------------------------------------------------- the response head
+       ;;
+       ;; MCP streamable-HTTP needs the session id from the response headers
+       ;; WHILE the stream is still open, to answer a server->client reverse
+       ;; request with a separate POST before the first stream closes. Headers
+       ;; returned when the stream ends arrive strictly too late, so the
+       ;; discriminator here is the CLOCK, not the value: an implementation that
+       ;; fired on-open at the end would satisfy every value assertion below.
+       ["on-open fired"        (some? (:open main))                 true]
+       ["on-open has status"   (:status (:open main))               200]
+       ["on-open BEFORE the first event"
+        (< (:at (:open main)) (first times))                        true]
+       ;; and not merely earlier — earlier by more than the 150 ms server gap,
+       ;; which a head delivered after the ~600 ms stream could never be
+       ["on-open leads by a real margin"
+        (< (:at (:open main)) (- (last times) 300))                 true]
+
+       ;; HEADER NAMES ARE LOWERCASED ON EVERY HOST. The server sends
+       ;; `Mcp-Session-Id`; java.net.http lowercases it and Go's http.Header
+       ;; canonicalises it, so before 0.10.0 exactly one host could read it and
+       ;; the other returned nil — silently, since a missing header and a
+       ;; mis-cased one are both nil. An all-lowercase test header could not
+       ;; have caught this, which is why the fixture uses mixed case.
+       ["head: session id, lowercase key"
+        (get (:headers (:open main)) "mcp-session-id")               "S-1"]
+       ["head: the server's own casing is NOT a key"
+        (contains? (:headers (:open main)) "Mcp-Session-Id")         false]
+       ["head: koine.http/header reads it case-insensitively"
+        (khttp/header (:open main) "Mcp-Session-Id")                 "S-1"]
+       ["returned map carries the head too"
+        (get (:headers main) "mcp-session-id")                       "S-1"]
+       ;; the 4-arity must keep working untouched — consumers on 0.9.x call it,
+       ;; and it is called DIRECTLY here: `collect` always passes :on-open, so
+       ;; routing this through it would have tested the 5-arity twice.
+       ["4-arity still streams"        (vec @four-log)               want-data]
+       ["4-arity still returns status" (:status four)                200]
+       ["4-arity returns headers too"  (get (:headers four) "mcp-session-id") "S-1"]])
     ;; A host with no streaming route must fail LOUDLY and by name (rule 2).
     [["named-gap" (and (cstr/includes? (:msg main) "koine.stream/sse-post")
                        (cstr/includes? (:msg main) "no implementation for this host"))
