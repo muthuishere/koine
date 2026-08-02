@@ -69,7 +69,7 @@ Read this before adding anything.
 | `examples/` | Two consumer projects (JVM, cljgo) on the published Clojars artifact, one shared source, `./examples/run-both.sh`. |
 | `src/conformance.cljc`, `src/*_check.cljc` | Host-parameterised conformance checks — run on **every** installed runtime. This is the real test suite. |
 | `test/koine/*_test.cljc` | `clojure.test` suites. **JVM only.** |
-| `run-conformance.sh` | Runs every check on every installed host, skipping the ones you don't have. |
+| `run-conformance.sh` | Runs every check on every installed host. Prints the host versions it MEASURED (asking the binary, not its version string) and exits non-zero on any failure — so it gates a release rather than being read. |
 | `docs/cljgo-requests.md` | What koine needs from cljgo, ranked, with evidence. |
 | `docs/adr/` | Decisions with their evidence. ADR 0001 is the check-discipline one. |
 | `spikes/` | Measurements. Numbers, growth, and what is NOT claimed. |
@@ -108,11 +108,60 @@ clojure -M:test          # JVM clojure.test suite (109 tests / 372 assertions)
 Installing the other hosts:
 
 ```bash
-go install github.com/muthuishere/cljgo/cmd/cljgo@v0.8.8   # >= v0.8.5
+go install github.com/muthuishere/cljgo/cmd/cljgo@v0.8.9   # >= v0.8.5
 ```
 
 Note `clojure -M:test` only proves the JVM. **A change is not verified until
-`run-conformance.sh` is green on at least JVM + cljgo.**
+`run-conformance.sh` is green on at least JVM + cljgo.** That script exits
+non-zero on any failure and prints WHAT IT MEASURED before it runs — see below.
+
+## Cutting a release
+
+**The order is fixed: CHANGELOG → git tag → GitHub release → Clojars.** Clojars
+is last and deliberately so: it is the only irreversible step. A version can
+never be re-deployed or withdrawn there, so nothing goes to Clojars until the
+log and the release that describe it already exist and are public. Getting this
+backwards means a published artifact nobody can explain — or unpublish.
+
+1. **Verify, and capture what you verified against.**
+   ```bash
+   clojure -M:test                                     # JVM suite
+   ./examples/run-both.sh                              # the artifact, both hosts, interpreted + AOT
+   env -u CLJGO_SRC PATH="$HOME/go/bin:$PATH" ./run-conformance.sh
+   ```
+   `run-conformance.sh` prints a provenance header and **exits non-zero** if any
+   host-check fails or fails to report. Take the host versions for the changelog
+   **from that header**, never from memory and never from `cljgo version`.
+
+   **Only a `(released build)` line is release evidence.** The header asks the
+   binary, not the version string: a `go install …@vX.Y.Z` build carries a `mod`
+   checksum and no `vcs` stanza; anything else prints `NOT a release` and must
+   not be written into the changelog. This is not hypothetical — the `cljgo` on
+   PATH here is a 422-byte shim that rebuilds from `../cljgo` on every call while
+   reporting a release-shaped version number, and believing it produced two
+   claims that had to be retracted. Install the tag and put `$HOME/go/bin` first.
+
+2. **Update `CHANGELOG.md`** — a new section with the version, the date, the
+   **`Tested against:` line copied from that header**, and what changed. A fix
+   names the defect and **who found it**; six of koine's seven shipped defects
+   were found by a consumer or a peer rather than by its own gate, and recording
+   the finder is how the gate's blind spots stay visible (ADR 0001).
+
+3. **Bump `build.clj`'s `version`**, commit, `git tag vX.Y.Z`, `git push --tags`.
+
+4. **Cut the GitHub release with that same section**, so the tag, the log and the
+   release notes cannot drift:
+   ```bash
+   awk '/^## X\.Y\.Z/{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/rel.md
+   gh release create vX.Y.Z --title "koine X.Y.Z" --notes-file /tmp/rel.md
+   ```
+
+5. **Then Clojars** — `clojure -T:build deploy`. Credentials come from the
+   environment (`CLOJARS_USERNAME`, `CLOJARS_PASSWORD` = a deploy token); the
+   value never enters a file, a command echo or this repo. The coordinate is
+   `net.clojars.muthuishere/koine`: Clojars pre-verifies `net.clojars.<user>`,
+   while `io.github.<user>` needs a one-time GitHub verification this group never
+   had (403 on deploy, 2026-07-30).
 
 ## When the bug is the host's, fix the host
 

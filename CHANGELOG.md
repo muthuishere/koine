@@ -24,7 +24,10 @@ the published Clojars artifact and producing byte-identical output.
 
 ## 0.9.1 — 2026-08-01
 
-**Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.8.8** (released, `go install …@v0.8.8`)
+**Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.8.8** and **v0.8.9** —
+both released builds, verified by their Go module checksum rather than by
+`cljgo version`. (v0.8.9 measured 2026-08-02, after the release: 26/26
+host-checks green, exit 0.)
 
 ### Fixed
 - **HTTP timeouts never applied on cljgo** — koine passed `:timeout-ms` where
@@ -230,16 +233,27 @@ First release, as `net.clojars.muthuishere/koine`.
 
 ## Release process
 
-Going forward, every release:
+**The order is fixed: CHANGELOG → tag → GitHub release → Clojars.** Clojars is
+last because it is the only irreversible step — a version there can never be
+re-deployed or withdrawn, so nothing is published until the log and the release
+that explain it already exist.
 
-1. `./run-conformance.sh` green on **every** installed host, `clojure -M:test`
-   green, `./examples/run-both.sh` green against the artifact.
-2. Record the exact host versions **measured** — `clojure -Sdescribe`, and the
-   cljgo release the check actually ran under (a released tag installed with
-   `go install …@vX.Y.Z`, never a source checkout, `CLJGO_SRC` unset — a PATH
-   `cljgo` that rebuilds from a local tree is not evidence about any version).
-3. Add the section above, bump `build.clj`'s `version`, commit, tag `vX.Y.Z`.
-4. `clojure -T:build deploy` (credentials from the environment only).
-5. `gh release create vX.Y.Z --notes-file <that section>` — the GitHub release
-   carries the same text as this file, so the tag, Clojars and the release notes
+1. **Verify.** `clojure -M:test`, `./examples/run-both.sh`, and
+   `env -u CLJGO_SRC PATH="$HOME/go/bin:$PATH" ./run-conformance.sh` — which
+   exits non-zero on any failure and prints a provenance header naming the exact
+   host versions it measured.
+2. **Copy the `Tested against:` line from that header.** Only a
+   `(released build)` counts: the header asks the Go binary for its `mod`
+   checksum rather than trusting `cljgo version`, because a PATH `cljgo` that
+   rebuilds from a local tree reports a release-shaped number while measuring
+   something else entirely. That mistake produced two retracted claims.
+3. **Add the section above**, bump `build.clj`'s `version`, commit, tag `vX.Y.Z`,
+   push.
+4. **`gh release create vX.Y.Z --notes-file <that section>`** — the GitHub
+   release carries the same text as this file, so the tag, the log and the notes
    cannot drift.
+5. **`clojure -T:build deploy`** to Clojars, last (credentials from the
+   environment only).
+
+The full version of this, with the commands, is in
+[CLAUDE.md](CLAUDE.md#cutting-a-release).
