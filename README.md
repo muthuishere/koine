@@ -111,9 +111,30 @@ portable.
 
 ## Status
 
-**Early.** Verified on Clojure 1.12.5 and **cljgo >= v0.8.5**, currently
-**v0.8.8** — measured against the published release (`go install …@v0.8.8`, no
-source checkout), not a local build.
+**Early.**
+
+### Tested against
+
+koine `0.9.1` is verified on:
+
+| host | version | how |
+|---|---|---|
+| Clojure (JVM) | 1.12.5 | `clojure -M:test` + every conformance check |
+| cljgo | **v0.8.8** | the published release — `go install …@v0.8.8`, no source checkout, `CLJGO_SRC` unset |
+
+Minimum supported cljgo is **v0.8.5**. Earlier koine releases were verified on
+v0.8.5 and v0.8.6 as well; the table names only what *this* release was measured
+against, because a version that was green for an older koine is not evidence for
+this one.
+
+What "verified" means here, in full: 13 conformance checks on both hosts, 109
+JVM unit tests, and both example projects — interpreted *and* AOT-compiled —
+producing byte-identical output, all against the artifact published to Clojars
+rather than a working tree.
+
+**koine's version is its own.** It tracks koine's API, not cljgo's, so a bump
+here means koine changed — never that a host did. Compatibility is a range and
+lives in this table, where it can say so honestly.
 
 The JSON conformance suite passes **14/14 on both hosts** — including every
 payload where the hosts' own JSON libraries diverged.
