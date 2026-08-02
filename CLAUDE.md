@@ -69,6 +69,7 @@ Read this before adding anything.
 | `examples/` | Two consumer projects (JVM, cljgo) on the published Clojars artifact, one shared source, `./examples/run-both.sh`. |
 | `src/conformance.cljc`, `src/*_check.cljc` | Host-parameterised conformance checks — run on **every** installed runtime. This is the real test suite. |
 | `test/koine/*_test.cljc` | `clojure.test` suites. **JVM only.** |
+| `scripts/verify-published.sh` | Checks the jar CLOJARS SERVES against the git tag — integrity, provenance, shape, dependency purity. |
 | `run-conformance.sh` | Runs every check on every installed host. Prints the host versions it MEASURED (asking the binary, not its version string) and exits non-zero on any failure — so it gates a release rather than being read. |
 | `docs/cljgo-requests.md` | What koine needs from cljgo, ranked, with evidence. |
 | `docs/adr/` | Decisions with their evidence. ADR 0001 is the check-discipline one. |
@@ -192,7 +193,22 @@ patch release: a Clojars version can never be re-deployed or withdrawn.
    runs a STALE binary, reporting a divergence that is not real. That cost a
    whole debugging session once.
 
-6. **Tag and cut the GitHub release, last** — so nothing is discoverable until
+6. **Verify what Clojars actually serves** — not what you think you uploaded:
+   ```bash
+   ./scripts/verify-published.sh X.Y.Z
+   ```
+   Integrity (bytes vs published checksum), **provenance** (every source file
+   identical to the git tag — a jar can be internally consistent and still built
+   from a dirty tree), shape (no `*_check.cljc` leaked), and **purity** (the POM
+   declares nothing but `org.clojure/clojure`). Exits non-zero on any of them.
+   Record the printed `sha256` in the changelog so consumers can pin.
+
+   Asked for by the toolnexus port, which caught a lock/registry mismatch with
+   the same check: a jar in `~/.m2` that was a LOCAL install, so a lock built
+   against it pinned a hash the registry does not serve. koine had nothing
+   equivalent and the purity promise was, until now, only a sentence.
+
+7. **Tag and cut the GitHub release, last** — so nothing is discoverable until
    the artifact behind it is green:
    ```bash
    git tag vX.Y.Z && git push origin main --tags

@@ -141,6 +141,33 @@ lives in this table, where it can say so honestly.
 Every release's own table — host versions measured, defects fixed, who found
 them — is in [CHANGELOG.md](CHANGELOG.md).
 
+To check the artifact yourself rather than trusting the table:
+
+```bash
+./scripts/verify-published.sh 0.10.0
+```
+
+It asks four things of the jar **Clojars actually serves** — that the bytes match
+the published checksum, that every source file is identical to the git tag, that
+no conformance program leaked in, and that the POM declares nothing but
+`org.clojure/clojure`. 0.10.0's is `sha256 323126c5…`.
+
+### If you are building the cljgo example locally
+
+**cljgo resolves Maven dependencies from remote repositories only — it never
+reads `~/.m2`.** So `clojure -T:build install` does *not* make a local koine
+visible to `cljgo build`; you get
+
+```
+error: maven coordinate net.clojars.muthuishere/koine 0.10.0 not found in any repository (pom)
+note: tried https://repo1.maven.org/maven2 — 404 Not Found
+note: tried https://repo.clojars.org — 404 Not Found
+```
+
+which looks like a broken local setup and is not. It means the version is not
+published yet. This is why koine's release order publishes to Clojars *before*
+running the examples — that ordering is forced, not stylistic.
+
 The JSON conformance suite passes **14/14 on both hosts** — including every
 payload where the hosts' own JSON libraries diverged.
 

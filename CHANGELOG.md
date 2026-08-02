@@ -100,6 +100,23 @@ than assumed:
 
 ### Tooling
 
+- **`scripts/verify-published.sh`** — verifies the jar **Clojars actually serves**
+  against the git tag: integrity (bytes vs published checksum), **provenance**
+  (every source file identical to the tag — a jar can be internally consistent
+  and still built from a dirty tree), shape (no conformance program leaked in),
+  and **purity** (the published POM declares nothing but `org.clojure/clojure`,
+  which was koine's central promise and was verified nowhere against the
+  artifact). Exits non-zero on any.
+
+  0.10.0 verified: 11 source files identical to `v0.10.0`, `sha256
+  323126c576c14d24b39eacbf8a8ea40dab9c08019bdfa35b568d44fc0d7343db`.
+
+  Asked for by the toolnexus port, which caught a lock/registry mismatch with
+  the equivalent check on its side and said it had already broken their CI once
+  before they built it. Proven to discriminate, not just to pass: against the
+  wrong tag it flags exactly the three namespaces 0.10.0 changed
+  (`host`/`http`/`stream`), and an unpublished version exits 1.
+
 - `run-conformance.sh` prints the host versions it **measured** and **exits
   non-zero** on failure, where failure includes a check that did not report at
   all. It reads cljgo's provenance from the binary's Go module checksum, not
