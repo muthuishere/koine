@@ -1,5 +1,7 @@
 # koine
 
+[![Discord](https://img.shields.io/badge/AgentNexus-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/V9C2kvHC8D)
+
 **Write `.cljc` once, run it on Clojure and on cljgo.**
 
 One API over two Clojure runtimes, from a single source file:
