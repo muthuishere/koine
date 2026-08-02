@@ -44,14 +44,16 @@
               :process/timeout :process/kill :process/exit-code :process/await
               :fs/mutate :fs/real-path
               :http/request :http/timeout :http/response-headers
-              :stream/sse :stream/response-head :route/router :server/serve}
+              :stream/sse :stream/response-head :route/router :server/serve
+              :text/code-points}
      :cljgo #{:json/read-write :env/get-env :time/clock :time/iso
               :fs/text :fs/bytes :codec/base64-string :codec/base64-bytes
               :process/sh :process/spawn :process/stderr-capture
               :process/timeout :process/kill :process/exit-code :process/await
               :fs/mutate :fs/real-path
               :http/request :http/timeout :http/response-headers
-              :stream/sse :stream/response-head :route/router :server/serve}
+              :stream/sse :stream/response-head :route/router :server/serve
+              :text/code-points}
      :default #{}))
 
 (defn supports?

@@ -13,7 +13,8 @@
   per host to keep in agreement, and cljgo's is a private builtin that is not
   reachable at all."
   (:refer-clojure :exclude [read])
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [koine.text :as ktext]))
 
 ;; ------------------------------------------------------------------ encode
 ;; Three choices, each made once, so the two hosts cannot drift:
@@ -72,42 +73,12 @@
 ;; pass straight through. One implementation, correct on both for different
 ;; reasons.
 
-(defn- cp-compare
-  "Lexicographic order over two code-point vectors: element by element, and a
-  prefix sorts before its extension.
-
-  This exists because `compare` on vectors is NOT lexicographic — clojure.core
-  compares vectors by COUNT first, so `[97 114 116]` sorts AFTER `[99 111]` and
-  \"artifacts\" landed after \"config\". koine 0.7.2 shipped exactly that bug
-  while fixing the surrogate one, and every conformance case added with it used
-  EQUAL-LENGTH keys, so none could see it. Ordinary ASCII keys of different
-  lengths were mis-ordered on both hosts — consistently, which is worse, because
-  the hosts agreed and the cross-host check stayed green."
-  [a b]
-  (let [n (min (count a) (count b))]
-    (loop [i 0]
-      (if (= i n)
-        (compare (count a) (count b))
-        (let [x (nth a i) y (nth b i)]
-          (if (= x y) (recur (inc i)) (compare x y)))))))
-
-(defn- code-points
-  "`s` as a vector of code points. Portable: no host call, no interop."
-  [s]
-  (let [n (count s)]
-    (loop [i 0 acc []]
-      (if (>= i n)
-        acc
-        (let [c (int (nth s i))]
-          (if (and (>= c 0xD800) (<= c 0xDBFF) (< (inc i) n))
-            (let [lo (int (nth s (inc i)))]
-              (if (and (>= lo 0xDC00) (<= lo 0xDFFF))
-                (recur (+ i 2)
-                       (conj acc (+ 0x10000
-                                    (* 0x400 (- c 0xD800))
-                                    (- lo 0xDC00))))
-                (recur (inc i) (conj acc c))))
-            (recur (inc i) (conj acc c))))))))
+;; cp-compare and code-points MOVED to koine.text in 0.11.0 — same code, made
+;; public because a consumer needing cross-host-stable ordering should reach for
+;; the seam instead of rediscovering it. Aliased here so the encoder reads the
+;; same as before; there is exactly ONE implementation, not two that can drift.
+(def ^:private cp-compare  ktext/compare-code-points)
+(def ^:private code-points ktext/code-points)
 
 (declare write-str)
 

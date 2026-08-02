@@ -22,6 +22,59 @@ the published Clojars artifact and producing byte-identical output.
 
 ---
 
+## 0.11.0 — 2026-08-02
+
+**Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.9.0** (released build,
+verified by Go module checksum)
+
+### Added
+
+- **`koine.text`** — `code-points`, `compare-code-points`, `compare-strings`,
+  `sort-strings`, `utf8-length`. Pure `clojure.core`; no host call, no interop,
+  no reader conditional.
+
+  **Why this belongs in koine, which is a floor and not a platform:** because
+  `clojure.core` gives *different answers* on the two hosts. Measured on Clojure
+  1.12.5 vs cljgo v0.9.0:
+
+  | expression | JVM | cljgo |
+  |---|---|---|
+  | `(compare "😀" "\uE000")` | negative | **positive** |
+  | `(count "😀")` | 2 — UTF-16 code units | **1** — one rune |
+  | `(sort ["😀" "\uE000"])` | private-use first | **emoji first** |
+
+  A JVM string is UTF-16 code units, so a supplementary character is a surrogate
+  pair whose lead unit is *below* U+E000; a cljgo string is runes, ordered by
+  UTF-8 bytes, which puts the same character *above*. They agree across the
+  entire BMP and diverge above it — which is why this survives every test until
+  one emoji reaches real data. That is prime directive 5, not scope creep.
+
+  **This is not new code.** `code-points` and the length-safe comparator have
+  been inside `koine.json` since 0.7.3, where they were bought with two shipped
+  bugs: 0.7.2 sorted by UTF-16 unit, and its fix sorted by *length* first
+  (`{"config":2,"artifacts":1}`) because `compare` on vectors is count-first.
+  Making them public means a consumer reaches for the seam instead of
+  rediscovering that the way koine and the toolnexus port both did — from a
+  byte-exact output that silently differed. `koine.json` now delegates, so there
+  is exactly one implementation rather than two that can drift.
+
+  Proposed by the toolnexus Clojure port after fixing **nine** sites locally.
+
+  Named `compare-strings`, not `compare`: shadowing `clojure.core/compare` would
+  force every consumer into a `:refer-clojure :exclude`, and cljgo warns on the
+  shadow *even with the exclusion declared* where the JVM is silent — a
+  portability cost with no benefit.
+
+- `koine.host` capability: `:text/code-points`.
+
+### Notes
+
+- `utf8-length` answers the question `count` cannot: how many **bytes** the
+  string occupies on the wire. `count` gives UTF-16 units on the JVM and runes
+  on cljgo — two different wrong answers for a `content-length` or a byte
+  budget. Computed from the code points by RFC 3629 rules, so no host encoder is
+  involved.
+
 ## 0.10.1 — 2026-08-02
 
 **Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.9.0** (released build,
