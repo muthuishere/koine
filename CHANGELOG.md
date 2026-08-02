@@ -26,6 +26,8 @@ the published Clojars artifact and producing byte-identical output.
 
 **Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.9.0** (released build,
 verified by Go module checksum)
+**Published artifact:** `sha256 7879b732e4a5a092d670575cf9c2172fd76039ff2b09eebf8dae0ca988f448e3`,
+verified against `v0.11.0` by `scripts/verify-published.sh`.
 
 ### Added
 
