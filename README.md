@@ -136,6 +136,9 @@ rather than a working tree.
 here means koine changed — never that a host did. Compatibility is a range and
 lives in this table, where it can say so honestly.
 
+Every release's own table — host versions measured, defects fixed, who found
+them — is in [CHANGELOG.md](CHANGELOG.md).
+
 The JSON conformance suite passes **14/14 on both hosts** — including every
 payload where the hosts' own JSON libraries diverged.
 

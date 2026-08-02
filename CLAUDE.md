@@ -73,6 +73,7 @@ Read this before adding anything.
 | `docs/cljgo-requests.md` | What koine needs from cljgo, ranked, with evidence. |
 | `docs/adr/` | Decisions with their evidence. ADR 0001 is the check-discipline one. |
 | `spikes/` | Measurements. Numbers, growth, and what is NOT claimed. |
+| `CHANGELOG.md` | Per-release log + the release process. A release is not done until its section names the host versions it was MEASURED on. |
 | `INPROGRESS.md` | Current state + the road to a first Clojars release. |
 
 ## The prime directive
@@ -245,6 +246,7 @@ got wrong.
 | Document | Purpose |
 |---|---|
 | `README.md` | What koine is, for users |
+| `CHANGELOG.md` | Every release: host versions MEASURED, defects fixed, who found them. Also the release process. |
 | `INPROGRESS.md` | Current state, publish readiness, open questions |
 | `docs/cljgo-requests.md` | What koine needs from cljgo, with evidence |
 | toolnexus `docs/adr/0009-clojure-port-cljc-dual-host.md` | Why koine exists; the measurements behind every decision here |
