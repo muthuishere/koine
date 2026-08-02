@@ -117,7 +117,7 @@ portable.
 
 ### Tested against
 
-koine `0.10.0` is verified on:
+koine `0.10.1` is verified on:
 
 | host | version | how |
 |---|---|---|
@@ -144,7 +144,7 @@ them — is in [CHANGELOG.md](CHANGELOG.md).
 To check the artifact yourself rather than trusting the table:
 
 ```bash
-./scripts/verify-published.sh 0.10.0
+./scripts/verify-published.sh 0.10.1
 ```
 
 It asks four things of the jar **Clojars actually serves** — that the bytes match
@@ -225,13 +225,13 @@ it (cljgo *is* the Clojure implementation; its `clojure.core` is embedded).
 
 ```clojure
 ;; deps.edn — JVM
-net.clojars.muthuishere/koine {:mvn/version "0.10.0"}
+net.clojars.muthuishere/koine {:mvn/version "0.10.1"}
 ```
 
 ```clojure
 ;; build.cljgo — cljgo
 (defn build [b]
-  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.10.0"})
+  (dep b "net.clojars.muthuishere/koine" {:mvn/version "0.10.1"})
   (install b (exe b {:name "myapp" :main "src/myapp/core.cljg"})))
 ```
 
@@ -265,7 +265,7 @@ net.clojars.muthuishere/koine {:mvn/version "0.10.0"}
 > you *computed* with 0.4.2 or 0.5.0 is wrong; only anything you *timed* on the
 > JVM is.
 
-**The API is unstable at `0.10.0`.** `koine.process`, `koine.route` and
+**The API is unstable at `0.10.1`.** `koine.process`, `koine.route` and
 `koine.server` are the most likely to move; `koine.json`, `koine.env`,
 `koine.time`, `koine.fs` and `koine.codec` are settled.
 

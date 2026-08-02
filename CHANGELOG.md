@@ -22,6 +22,51 @@ the published Clojars artifact and producing byte-identical output.
 
 ---
 
+## 0.10.1 — 2026-08-02
+
+**Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.9.0** (released build,
+verified by Go module checksum)
+
+### Fixed
+
+- **`delete!` refused a non-empty directory without saying so on the JVM.** Both
+  hosts already agreed on *behaviour* — refuse, leave the tree intact — but not
+  on explaining it:
+
+  | host | message before |
+  |---|---|
+  | JVM | `/var/folders/…/sub` — the bare path, from `DirectoryNotEmptyException` |
+  | cljgo | `cljg.io/delete!: directory is not empty` |
+
+  A caller seeing only a path cannot tell a non-empty directory from a
+  permission problem from a vanished mount. That fails prime directive 3 — an
+  error must be **named and actionable**, not merely thrown. Both hosts now
+  raise `koine.fs/delete!: directory is not empty: <path> — delete its contents
+  first, or use koine.fs/delete-tree!`, with the host's own text preserved under
+  `:host-message`.
+
+  Surfaced by the toolnexus port, where a concurrent suite **killed a process**
+  on this call. Their diagnosis was that the JVM "silently no-ops" where Go
+  errors — true of raw `java.io.File/delete`, but koine's `:clj` branch uses
+  `java.nio.file.Files`, which throws. So the divergence was never behavioural;
+  it was only ever the message, which is why no behavioural check saw it.
+
+  The new cases assert the **message**, and were proven to discriminate:
+  reverting the fix fails exactly the three message assertions while "it throws"
+  and "it leaves the tree intact" still pass — so a naive `(is (thrown? …))`
+  would have shipped this.
+
+### Docs
+
+- **`delete-tree!` is documented as NOT safe against concurrent writers**, on
+  either host — stated rather than fixed. The walk is taken once, so anything
+  created under the path afterwards leaves its parent non-empty when `delete!`
+  reaches it. Two suites sharing one fixture directory is the usual way to meet
+  it, and it reports itself as a runtime flake rather than a concurrency bug —
+  it will not reproduce when hunted in isolation, because isolation removes the
+  collision. Give each process its own root; `temp-dir!` returns a fresh one per
+  call.
+
 ## 0.10.0 — 2026-08-02
 
 **Tested against:** Clojure (JVM) 1.12.5 · cljgo **v0.8.9** and **v0.9.0** —

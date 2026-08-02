@@ -64,17 +64,48 @@
        :default (throw (ex-info "koine.fs/mkdirs!: no implementation for this host; add a branch in koine/fs.cljc"
                                 {:path p})))))
 
+(defn- delete-failed
+  "One named, actionable error for a failed delete, whichever host raised it.
+
+  The hosts AGREE on behaviour here — both refuse a non-empty directory and both
+  leave it intact — but they did not agree on saying so. cljgo raised
+  `cljg.io/delete!: directory is not empty`; the JVM raised a
+  `DirectoryNotEmptyException` whose message is the BARE PATH and nothing else.
+  A caller seeing `/var/folders/…/sub` cannot tell a permission problem from a
+  non-empty directory from a vanished mount, which fails prime directive 3: an
+  error must be named and actionable, not merely thrown.
+
+  Found via the toolnexus port, where a concurrent suite killed a process on
+  this call. Their diagnosis was that the JVM 'silently no-ops' where Go errors
+  — true of raw `File.delete`, but koine's :clj branch uses
+  `java.nio.file.Files`, which throws. So the divergence was never the
+  behaviour; it was only ever the message."
+  [p e]
+  (ex-info (str "koine.fs/delete!: " (if (directory? p)
+                                       "directory is not empty"
+                                       "could not delete")
+                ": " p
+                (when (directory? p)
+                  " — delete its contents first, or use koine.fs/delete-tree!"))
+           {:path p :host-message (or (ex-message e) (str e))}))
+
 (defn delete!
   "Delete the file or EMPTY directory at `path`. Returns nil. Not an error if
   it is already absent — deleting is a statement about the end state, and both
-  hosts agree only if koine says so."
+  hosts agree only if koine says so.
+
+  Throws on a NON-EMPTY directory, on both hosts, with the reason named. Use
+  `delete-tree!` for a recursive delete."
   [path]
-  #?(:clj   (do (java.nio.file.Files/deleteIfExists
-                 (.toPath (java.io.File. ^String (str path))))
-                nil)
-     :cljgo (do (cio/delete! (str path)) nil)
-     :default (throw (ex-info "koine.fs/delete!: no implementation for this host; add a branch in koine/fs.cljc"
-                              {:path path}))))
+  (let [p (str path)]
+    #?(:clj   (try (java.nio.file.Files/deleteIfExists
+                    (.toPath (java.io.File. ^String p)))
+                   nil
+                   (catch Exception e (throw (delete-failed p e))))
+       :cljgo (try (cio/delete! p) nil
+                   (catch Exception e (throw (delete-failed p e))))
+       :default (throw (ex-info "koine.fs/delete!: no implementation for this host; add a branch in koine/fs.cljc"
+                                {:path p})))))
 
 (defn temp-dir!
   "Create a fresh temporary directory and return its path.
@@ -100,7 +131,17 @@
   neither is the better trade. Deepest-first over `list-tree` is the same
   traversal koine already guarantees, so the ORDER of removal is koine's and
   cannot differ per host — and a bug here deletes the wrong thing, which is the
-  last place to want two implementations."
+  last place to want two implementations.
+
+  NOT SAFE AGAINST CONCURRENT WRITERS, on either host, and this is stated rather
+  than fixed. The walk is taken once; anything created under `path` afterwards
+  is not in the list, so its parent is no longer empty when `delete!` reaches it
+  and the call throws. Two suites sharing one fixture directory is the usual
+  way to meet this, and it reports itself as a runtime flake rather than as the
+  concurrency bug it is — a fixed writable path in a test will not reproduce
+  when hunted in isolation, because isolation removes the collision. Give each
+  process its own root (`temp-dir!` returns a fresh one per call). Diagnosed by
+  the toolnexus port, 2026-08-02."
   [path]
   (when (exists? path)
     (doseq [p (reverse (sort (list-tree path)))]

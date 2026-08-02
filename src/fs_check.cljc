@@ -10,10 +10,11 @@
 ;; It used to shell out to `mkdir -p` and `rm -rf` — portable across HOSTS but
 ;; not across OPERATING SYSTEMS, and a process spawn for a syscall. That is the
 ;; workaround koine now removes, so the check must not keep it either.
-(require 'koine.fs 'koine.process 'koine.host 'clojure.string)
+(require 'koine.fs 'koine.process 'koine.host 'koine.codec 'clojure.string)
 (alias 'host 'koine.host)
 (alias 'fs 'koine.fs)
 (alias 'proc 'koine.process)
+(alias 'kcodec 'koine.codec)
 (alias 'cstr 'clojure.string)
 
 (def root (str (fs/temp-dir! "koine-fs-check") "/tree"))
@@ -41,6 +42,19 @@
 ;; deleting what is already gone must NOT throw — that is the contract, and it
 ;; is the difference between `rm -f` and `rm`.
 (def deleted-twice (try (fs/delete! (str root "/gone.txt")) :ok (catch Throwable _ :threw)))
+
+;; delete! on a NON-EMPTY directory. Both hosts refuse and both leave the tree
+;; intact — but until 0.10.1 only cljgo SAID why: the JVM raised a
+;; DirectoryNotEmptyException whose message is the bare path and nothing else,
+;; so a caller could not tell a non-empty directory from a permission problem.
+;; Asserting the message, not just that it threw, is the whole point: "it
+;; throws" was already true on both hosts while one of them was unactionable.
+(def nonempty-dir (str (fs/temp-dir! "koine-nonempty-") "/d"))
+(def _ne1 (fs/mkdirs! nonempty-dir))
+(def _ne2 (fs/write-bytes (str nonempty-dir "/f.txt") (kcodec/decode-bytes "eA==")))
+(def del-nonempty
+  (try (fs/delete! nonempty-dir) :no-throw
+       (catch Throwable e (or (ex-message e) (str e)))))
 
 (fs/delete-tree! (str root "/x"))
 (def tree-twice (try (fs/delete-tree! (str root "/x")) :ok (catch Throwable _ :threw)))
@@ -135,6 +149,16 @@
    ["delete-file"   (fs/exists? (str root "/gone.txt"))         false]
    ["delete-absent-ok" deleted-twice                            :ok]
    ["delete-returns-nil" del-ret                                nil]
+
+   ;; the refusal is NAMED on both hosts, not merely raised
+   ["delete-nonempty-throws" (= :no-throw del-nonempty)         false]
+   ["delete-nonempty-names-the-fn"
+    (cstr/includes? (str del-nonempty) "koine.fs/delete!")      true]
+   ["delete-nonempty-names-the-reason"
+    (cstr/includes? (str del-nonempty) "directory is not empty") true]
+   ["delete-nonempty-says-what-to-do"
+    (cstr/includes? (str del-nonempty) "delete-tree!")          true]
+   ["delete-nonempty-leaves-it-intact" (fs/exists? (str nonempty-dir "/f.txt")) true]
 
    ;; delete-tree! removes a NON-EMPTY tree; delete! alone cannot.
    ["tree-gone"     (fs/exists? (str root "/x"))                false]

@@ -22,7 +22,7 @@
 ;; GitHub verification the group has not been through (a 403 "Group
 ;; 'io.github.muthuishere' doesn't exist" on deploy, 2026-07-30).
 (def lib 'net.clojars.muthuishere/koine)
-(def version "0.10.0")
+(def version "0.10.1")
 (def class-dir "target/classes")
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
 
